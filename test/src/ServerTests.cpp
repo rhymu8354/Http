@@ -135,4 +135,3 @@ TEST(ServerTests, RequestWithNoContentLengthOrChunkedTransferEncodingHasNoBody) 
     expectedUri.ParseFromString("/hello.txt");
     ASSERT_TRUE(request->body.empty());
 }
-
