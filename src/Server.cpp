@@ -109,13 +109,59 @@ namespace Http {
      * This contains the private properties of a Server instance.
      */
     struct Server::Impl {
+        // Properties
+
+        /**
+         * This is the transport layer currently bound.
+         */
+        std::shared_ptr< ServerTransport > transport;
+
+        // Methods
+
+        /**
+         * This method is called when a new connection has been
+         * established for the server.
+         *
+         * @param[in] connection
+         *     This is the new connection has been established for the server.
+         */
+        void NewConnection(std::shared_ptr< Connection > connection) {
+        }
     };
 
-    Server::~Server() = default;
+    Server::~Server() {
+        Demobilize();
+    }
 
     Server::Server()
         : impl_(new Impl)
     {
+    }
+
+    bool Server::Mobilize(
+        std::shared_ptr< ServerTransport > transport,
+        uint16_t port
+    ) {
+        impl_->transport = transport;
+        if (
+            !impl_->transport->BindNetwork(
+                port,
+                [this](std::shared_ptr< Connection > connection){
+                    impl_->NewConnection(connection);
+                }
+            )
+        ) {
+            impl_->transport = nullptr;
+            return false;
+        }
+        return true;
+    }
+
+    void Server::Demobilize() {
+        if (impl_->transport != nullptr) {
+            impl_->transport->ReleaseNetwork();
+            impl_->transport = nullptr;
+        }
     }
 
     auto Server::ParseRequest(const std::string& rawRequest) -> std::shared_ptr< Request > {

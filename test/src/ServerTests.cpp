@@ -11,6 +11,48 @@
 #include <Http/Server.hpp>
 #include <Uri/Uri.hpp>
 
+namespace {
+
+    /**
+     * This is a fake transport layer which is used to test the server.
+     */
+    struct MockTransport
+        : public Http::ServerTransport
+    {
+        // Properties
+
+        /**
+         * This flag indicates whether or not the transport layer
+         * has been bound by the server.
+         */
+        bool bound = false;
+
+        /**
+         * This is the port number that the server bound on the transport
+         * layer.
+         */
+        uint16_t port = 0;
+
+        // Methods
+
+        // Http::ServerTransport
+
+        virtual bool BindNetwork(
+            uint16_t newPort,
+            NewConnectionDelegate newConnectionDelegate
+        ) override {
+            port = newPort;
+            bound = true;
+            return true;
+        }
+
+        virtual void ReleaseNetwork() override {
+            bound = false;
+        }
+    };
+
+}
+
 TEST(ServerTests, ParseGetRequest) {
     Http::Server server;
     const auto request = server.ParseRequest(
@@ -134,4 +176,29 @@ TEST(ServerTests, RequestWithNoContentLengthOrChunkedTransferEncodingHasNoBody) 
     Uri::Uri expectedUri;
     expectedUri.ParseFromString("/hello.txt");
     ASSERT_TRUE(request->body.empty());
+}
+
+TEST(ServerTests, Mobilize) {
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server server;
+    ASSERT_TRUE(server.Mobilize(transport, 1234));
+    ASSERT_TRUE(transport->bound);
+    ASSERT_EQ(1234, transport->port);
+}
+
+TEST(ServerTests, Demobilize) {
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server server;
+    (void)server.Mobilize(transport, 1234);
+    server.Demobilize();
+    ASSERT_FALSE(transport->bound);
+}
+
+TEST(ServerTests, ReleaseNetworkUponDestruction) {
+    auto transport = std::make_shared< MockTransport >();
+    {
+        Http::Server server;
+        (void)server.Mobilize(transport, 1234);
+    }
+    ASSERT_FALSE(transport->bound);
 }

@@ -9,8 +9,11 @@
  * © 2018 by Richard Walters
  */
 
+#include "ServerTransport.hpp"
+
 #include <memory>
 #include <MessageHeaders/MessageHeaders.hpp>
+#include <stdint.h>
 #include <string>
 #include <Uri/Uri.hpp>
 
@@ -72,6 +75,33 @@ namespace Http {
          * This is the default constructor.
          */
         Server();
+
+        /**
+         * This method will cause the server to bind to the given transport
+         * layer and start accepting and processing connections from clients.
+         *
+         * @param[in] transport
+         *     This is the transport layer implementation to use.
+         *
+         * @param[in] port
+         *     This is the public port number to which clients may connect
+         *     to establish connections with this server.
+         *
+         * @return
+         *     An indication of whether or not the method was successful
+         *     is returned.
+         */
+        bool Mobilize(
+            std::shared_ptr< ServerTransport > transport,
+            uint16_t port
+        );
+
+        /**
+         * This method stops any accepting or processing of client connections,
+         * and releases the transport layer, returning the server back to the
+         * state it was in before Mobilize was called.
+         */
+        void Demobilize();
 
         /**
          * This method parses the given string as a raw HTTP request message.
