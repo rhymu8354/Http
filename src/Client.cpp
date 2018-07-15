@@ -150,13 +150,17 @@ namespace Http {
         // Second, parse the message headers and identify where the body begins.
         const auto headersOffset = statusLineEnd + CRLF.length();
         size_t bodyOffset;
-        if (
-            !response->headers.ParseRawMessage(
+        switch (
+            response->headers.ParseRawMessage(
                 rawResponse.substr(headersOffset),
                 bodyOffset
             )
         ) {
-            return nullptr;
+            case MessageHeaders::MessageHeaders::Validity::ValidComplete: break;
+            case MessageHeaders::MessageHeaders::Validity::ValidIncomplete: return nullptr;
+            case MessageHeaders::MessageHeaders::Validity::InvalidRecoverable: return nullptr;
+            case MessageHeaders::MessageHeaders::Validity::InvalidUnrecoverable:
+            default: return nullptr;
         }
 
         // Check for "Content-Length" header.  If present, use this to

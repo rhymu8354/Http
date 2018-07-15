@@ -11,6 +11,7 @@
 
 #include "ServerTransport.hpp"
 
+#include <ostream>
 #include <memory>
 #include <MessageHeaders/MessageHeaders.hpp>
 #include <stdint.h>
@@ -37,6 +38,31 @@ namespace Http {
          * into its various elements.
          */
         struct Request {
+            // Types
+
+            /**
+             * These are the different validity states
+             * that a request can have.
+             */
+            enum class Validity {
+                /**
+                 * good request
+                 */
+                Valid,
+
+                /**
+                 * bad request, but server can keep connection
+                 */
+                InvalidRecoverable,
+
+                /**
+                 * bad request, and server should close connection
+                 */
+                InvalidUnrecoverable,
+            };
+
+            // Properties
+
             /**
              * This indicates the request method to be performed on the
              * target resource.
@@ -59,6 +85,14 @@ namespace Http {
              * This is the body of the request, if there is a body.
              */
             std::string body;
+
+            /**
+             * This indicates whether or not the request
+             * passed all validity checks when it was parsed,
+             * and if not, whether or not the connection can
+             * still be used.
+             */
+            Validity validity = Validity::Valid;
         };
 
         // Lifecycle management
@@ -116,7 +150,7 @@ namespace Http {
          *     is returned.
          *
          * @retval nullptr
-         *     This is returned if the given rawRequest did not parse correctly.
+         *     This is returned if the given rawRequest is incomplete.
          */
         static std::shared_ptr< Request > ParseRequest(const std::string& rawRequest);
 
@@ -160,6 +194,21 @@ namespace Http {
          */
         std::unique_ptr< struct Impl > impl_;
     };
+
+    /**
+     * This is a support function for Google Test to print out
+     * values of the Server::Request::Validity class.
+     *
+     * @param[in] validity
+     *     This is the validity value to print.
+     *
+     * @param[in] os
+     *     This points to the stream to which to print the validity value.
+     */
+    void PrintTo(
+        const Server::Request::Validity& validity,
+        std::ostream* os
+    );
 
 }
 
