@@ -60,6 +60,16 @@ namespace Http {
         ) = 0;
 
         /**
+         * This method returns the public port number that was bound
+         * for accepting connections from clients.
+         *
+         * @return
+         *     The public port number that was bound
+         *     for accepting connections from clients is returned.
+         */
+        virtual uint16_t GetBoundPort() = 0;
+
+        /**
          * This method releases all resources and access that were acquired
          * and held as a result of calling the BindNetwork method.
          */
