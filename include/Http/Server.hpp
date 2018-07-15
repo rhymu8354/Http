@@ -10,10 +10,9 @@
  */
 
 #include <memory>
-#include <stdint.h>
+#include <MessageHeaders/MessageHeaders.hpp>
 #include <string>
-#include <ostream>
-#include <vector>
+#include <Uri/Uri.hpp>
 
 namespace Http {
 
@@ -28,6 +27,37 @@ namespace Http {
      * responses to return back to the original HTTP request senders.
      */
     class Server {
+        // Types
+    public:
+        /**
+         * This represents an overall HTTP server request, decomposed
+         * into its various elements.
+         */
+        struct Request {
+            /**
+             * This indicates the request method to be performed on the
+             * target resource.
+             */
+            std::string method;
+
+            /**
+             * This identifies the target resource upon which to apply
+             * the request.
+             */
+            Uri::Uri target;
+
+            /**
+             * These are the message headers that were included
+             * in the request.
+             */
+            MessageHeaders::MessageHeaders headers;
+
+            /**
+             * This is the body of the request, if there is a body.
+             */
+            std::string body;
+        };
+
         // Lifecycle management
     public:
         ~Server();
@@ -42,6 +72,23 @@ namespace Http {
          * This is the default constructor.
          */
         Server();
+
+        /**
+         * This method parses the given string as a raw HTTP request message.
+         * If the string parses correctly, the equivalent Request is returned.
+         * Otherwise, nullptr is returned.
+         *
+         * @param[in] rawRequest
+         *     This is the raw HTTP request message as a single string.
+         *
+         * @return
+         *     The Request equivalent to the given raw HTTP request string
+         *     is returned.
+         *
+         * @retval nullptr
+         *     This is returned if the given rawRequest did not parse correctly.
+         */
+        std::shared_ptr< Request > ParseRequest(const std::string& rawRequest);
 
         // Private properties
     private:
