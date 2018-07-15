@@ -36,14 +36,16 @@ TEST(ServerTests, ParseGetRequest) {
 
 TEST(ServerTests, ParsePostRequest) {
     Http::Server server;
-    const auto request = server.ParseRequest(
+    size_t messageEnd;
+    const std::string rawRequest = (
         "POST / HTTP/1.1\r\n"
         "Host: foo.com\r\n"
         "Content-Type: application/x-www-form-urlencoded\r\n"
         "Content-Length: 13\r\n"
         "\r\n"
-        "say=Hi&to=Mom"
+        "say=Hi&to=Mom\r\n"
     );
+    const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
     Uri::Uri expectedUri;
     expectedUri.ParseFromString("/");
@@ -56,4 +58,64 @@ TEST(ServerTests, ParsePostRequest) {
     ASSERT_TRUE(request->headers.HasHeader("Content-Length"));
     ASSERT_EQ("13", request->headers.GetHeaderValue("Content-Length"));
     ASSERT_EQ("say=Hi&to=Mom", request->body);
+    ASSERT_EQ(rawRequest.length() - 2, messageEnd);
+}
+
+TEST(ServerTests, ParseIncompleteBodyRequest) {
+    Http::Server server;
+    size_t messageEnd;
+    const std::string rawRequest = (
+        "POST / HTTP/1.1\r\n"
+        "Host: foo.com\r\n"
+        "Content-Type: application/x-www-form-urlencoded\r\n"
+        "Content-Length: 100\r\n"
+        "\r\n"
+        "say=Hi&to=Mom\r\n"
+    );
+    const auto request = server.ParseRequest(rawRequest, messageEnd);
+    ASSERT_TRUE(request == nullptr);
+}
+
+TEST(ServerTests, ParseIncompleteHeadersBetweenLinesRequest) {
+    Http::Server server;
+    size_t messageEnd;
+    const std::string rawRequest = (
+        "POST / HTTP/1.1\r\n"
+        "Host: foo.com\r\n"
+        "Content-Type: application/x-www-form-urlencoded\r\n"
+    );
+    const auto request = server.ParseRequest(rawRequest, messageEnd);
+    ASSERT_TRUE(request == nullptr);
+}
+
+TEST(ServerTests, ParseIncompleteHeadersMidLineRequest) {
+    Http::Server server;
+    size_t messageEnd;
+    const std::string rawRequest = (
+        "POST / HTTP/1.1\r\n"
+        "Host: foo.com\r\n"
+        "Content-Type: application/x-w"
+    );
+    const auto request = server.ParseRequest(rawRequest, messageEnd);
+    ASSERT_TRUE(request == nullptr);
+}
+
+TEST(ServerTests, ParseIncompleteRequestLine) {
+    Http::Server server;
+    size_t messageEnd;
+    const std::string rawRequest = (
+        "POST / HTTP/1.1\r"
+    );
+    const auto request = server.ParseRequest(rawRequest, messageEnd);
+    ASSERT_TRUE(request == nullptr);
+}
+
+TEST(ServerTests, ParseNoHeadersRequest) {
+    Http::Server server;
+    size_t messageEnd;
+    const std::string rawRequest = (
+        "POST / HTTP/1.1\r\n"
+    );
+    const auto request = server.ParseRequest(rawRequest, messageEnd);
+    ASSERT_TRUE(request == nullptr);
 }
