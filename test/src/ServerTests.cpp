@@ -119,3 +119,20 @@ TEST(ServerTests, ParseNoHeadersRequest) {
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_TRUE(request == nullptr);
 }
+
+TEST(ServerTests, RequestWithNoContentLengthOrChunkedTransferEncodingHasNoBody) {
+    Http::Server server;
+    const auto request = server.ParseRequest(
+        "GET /hello.txt HTTP/1.1\r\n"
+        "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
+        "Host: www.example.com\r\n"
+        "Accept-Language: en, mi\r\n"
+        "\r\n"
+        "Hello, World!\r\n"
+    );
+    ASSERT_FALSE(request == nullptr);
+    Uri::Uri expectedUri;
+    expectedUri.ParseFromString("/hello.txt");
+    ASSERT_TRUE(request->body.empty());
+}
+

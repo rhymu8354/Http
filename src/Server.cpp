@@ -172,8 +172,8 @@ namespace Http {
                 messageEnd = bodyOffset + contentLength;
             }
         } else {
-            request->body = rawRequest.substr(bodyOffset);
-            messageEnd = rawRequest.length();
+            request->body.clear();
+            messageEnd = bodyOffset;
         }
         return request;
     }
