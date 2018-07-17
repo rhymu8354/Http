@@ -324,7 +324,7 @@ TEST_F(ServerTests, ParseInvalidHeaderLineTooLong) {
     const std::string valueIsTooLong(999 - testHeaderNameWithDelimiters.length(), 'X');
     const std::string rawRequest = (
         "GET /hello.txt HTTP/1.1\r\n"
-        "User-Agent curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
+        "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
         + testHeaderNameWithDelimiters + valueIsTooLong + "\r\n"
         "Host: www.example.com\r\n"
         "Accept-Language: en, mi\r\n"
@@ -332,7 +332,7 @@ TEST_F(ServerTests, ParseInvalidHeaderLineTooLong) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::InvalidRecoverable, request->validity);
+    ASSERT_EQ(Http::Server::Request::Validity::InvalidUnrecoverable, request->validity);
 }
 
 TEST_F(ServerTests, ParseValidHeaderLineLongerThanDefault) {
