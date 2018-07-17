@@ -339,11 +339,11 @@ TEST_F(ServerTests, ParseValidHeaderLineLongerThanDefault) {
     size_t messageEnd;
     const std::string testHeaderName("X-Poggers");
     const std::string testHeaderNameWithDelimiters = testHeaderName + ": ";
-    const std::string valueIsTooLong(999 - testHeaderNameWithDelimiters.length(), 'X');
+    const std::string valueIsLongButWithinCustomLimit(999 - testHeaderNameWithDelimiters.length(), 'X');
     const std::string rawRequest = (
         "GET /hello.txt HTTP/1.1\r\n"
         "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
-        + testHeaderNameWithDelimiters + valueIsTooLong + "\r\n"
+        + testHeaderNameWithDelimiters + valueIsLongButWithinCustomLimit + "\r\n"
         "Host: www.example.com\r\n"
         "Accept-Language: en, mi\r\n"
         "\r\n"
