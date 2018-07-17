@@ -302,6 +302,19 @@ namespace Http {
                     DataReceived(connectionState, data);
                 }
             );
+            connection->SetBrokenDelegate(
+                [this, connectionStateWeak]{
+                    const auto connectionState = connectionStateWeak.lock();
+                    if (connectionState == nullptr) {
+                        return;
+                    }
+                    diagnosticsSender.SendDiagnosticInformationFormatted(
+                        2, "Connection to %s broken by peer",
+                        connectionState->connection->GetPeerId().c_str()
+                    );
+                    (void)activeConnections.erase(connectionState);
+                }
+            );
         }
     };
 
