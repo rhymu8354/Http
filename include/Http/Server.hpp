@@ -144,6 +144,34 @@ namespace Http {
         void UnsubscribeFromDiagnostics(SystemAbstractions::DiagnosticsSender::SubscriptionToken subscriptionToken);
 
         /**
+         * This method returns the value of the given server
+         * configuration item.
+         *
+         * @param[in] key
+         *     This is the key identifying the configuration item
+         *     whose value should be returned.
+         *
+         * @return
+         *     The value of the configuration item is returned.
+         */
+        std::string GetConfigurationItem(const std::string& key);
+
+        /**
+         * This method sets the value of the given server configuration item.
+         *
+         * @param[in] key
+         *     This is the key identifying the configuration item
+         *     whose value should be set.
+         *
+         * @param[in] value
+         *     This is the value to set for the configuration item.
+         */
+        void SetConfigurationItem(
+            const std::string& key,
+            const std::string& value
+        );
+
+        /**
          * This method will cause the server to bind to the given transport
          * layer and start accepting and processing connections from clients.
          *
@@ -185,7 +213,7 @@ namespace Http {
          * @retval nullptr
          *     This is returned if the given rawRequest is incomplete.
          */
-        static std::shared_ptr< Request > ParseRequest(const std::string& rawRequest);
+        std::shared_ptr< Request > ParseRequest(const std::string& rawRequest);
 
         /**
          * This method parses the given string as a raw HTTP request message.
@@ -208,7 +236,7 @@ namespace Http {
          * @retval nullptr
          *     This is returned if the given rawRequest did not parse correctly.
          */
-        static std::shared_ptr< Request > ParseRequest(
+        std::shared_ptr< Request > ParseRequest(
             const std::string& rawRequest,
             size_t& messageEnd
         );

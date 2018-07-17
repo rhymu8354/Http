@@ -9,10 +9,13 @@
 #include <condition_variable>
 #include <Http/Server.hpp>
 #include <inttypes.h>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
 #include <stddef.h>
+#include <stdio.h>
+#include <SystemAbstractions/StringExtensions.hpp>
 #include <thread>
 
 namespace {
@@ -30,9 +33,9 @@ namespace {
     constexpr size_t MAX_CONTENT_LENGTH = 10000000;
 
     /**
-     * This is the maximum length allowed for a request header line.
+     * This is the default maximum length allowed for a request header line.
      */
-    constexpr size_t HEADER_LINE_LIMIT = 1000;
+    constexpr size_t DEFAULT_HEADER_LINE_LIMIT = 1000;
 
     /**
      * This function parses the given string as a size
@@ -147,6 +150,9 @@ namespace {
          * This method appends the given data to the end of the reassembly
          * buffer, and then attempts to parse a request out of it.
          *
+         * @param[in] server
+         *     This is the server that owns this connection.
+         *
          * @return
          *     The request parsed from the reassembly buffer is returned.
          *
@@ -154,9 +160,11 @@ namespace {
          *     This is returned if no request could be parsed from the
          *     reassembly buffer.
          */
-        std::shared_ptr< Http::Server::Request > TryRequestAssembly() {
+        std::shared_ptr< Http::Server::Request > TryRequestAssembly(
+            Http::Server* server
+        ) {
             size_t messageEnd;
-            const auto request = Http::Server::ParseRequest(
+            const auto request = server->ParseRequest(
                 reassemblyBuffer,
                 messageEnd
             );
@@ -181,6 +189,23 @@ namespace Http {
      */
     struct Server::Impl {
         // Properties
+
+        /**
+         * This refers back to the server whose private properties
+         * are stored here.
+         */
+        Server* server = nullptr;
+
+        /**
+         * This holds all configuration items for the server.
+         */
+        std::map< std::string, std::string > configuration;
+
+        /**
+         * This is the maximum number of characters allowed on any header line
+         * of an HTTP request.
+         */
+        size_t headerLineLimit = DEFAULT_HEADER_LINE_LIMIT;
 
         /**
          * This is the transport layer currently bound.
@@ -281,7 +306,7 @@ namespace Http {
         ) {
             connectionState->reassemblyBuffer += std::string(data.begin(), data.end());
             for (;;) {
-                const auto request = connectionState->TryRequestAssembly();
+                const auto request = connectionState->TryRequestAssembly(server);
                 if (request == nullptr) {
                     break;
                 }
@@ -397,6 +422,8 @@ namespace Http {
     Server::Server()
         : impl_(new Impl)
     {
+        impl_->server = this;
+        impl_->configuration["HeaderLineLimit"] = SystemAbstractions::sprintf("%zu", impl_->headerLineLimit);
         impl_->reaper = std::thread(&Impl::Reaper, impl_.get());
     }
 
@@ -409,6 +436,40 @@ namespace Http {
 
     void Server::UnsubscribeFromDiagnostics(SystemAbstractions::DiagnosticsSender::SubscriptionToken subscriptionToken) {
         impl_->diagnosticsSender.UnsubscribeFromDiagnostics(subscriptionToken);
+    }
+
+    std::string Server::GetConfigurationItem(const std::string& key) {
+        const auto entry = impl_->configuration.find(key);
+        if (entry == impl_->configuration.end()) {
+            return "";
+        } else {
+            return entry->second;
+        }
+    }
+
+    void Server::SetConfigurationItem(
+        const std::string& key,
+        const std::string& value
+    ) {
+        impl_->configuration[key] = value;
+        if (key == "HeaderLineLimit") {
+            size_t newHeaderLineLimit;
+            if (
+                sscanf(
+                    value.c_str(),
+                    "%zu",
+                    &newHeaderLineLimit
+                ) == 1
+            ) {
+                impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Header line limit changed from %zu to %zu",
+                    impl_->headerLineLimit,
+                    newHeaderLineLimit
+                );
+                impl_->headerLineLimit = newHeaderLineLimit;
+            }
+        }
     }
 
     bool Server::Mobilize(
@@ -467,7 +528,7 @@ namespace Http {
         // Second, parse the message headers and identify where the body begins.
         const auto headersOffset = requestLineEnd + CRLF.length();
         size_t bodyOffset;
-        request->headers.SetLineLimit(HEADER_LINE_LIMIT);
+        request->headers.SetLineLimit(impl_->headerLineLimit);
         switch (
             request->headers.ParseRawMessage(
                 rawRequest.substr(headersOffset),
