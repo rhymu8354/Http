@@ -10,6 +10,8 @@
 #include <gtest/gtest.h>
 #include <Http/Server.hpp>
 #include <limits>
+#include <SystemAbstractions/DiagnosticsSender.hpp>
+#include <SystemAbstractions/StringExtensions.hpp>
 #include <Uri/Uri.hpp>
 
 namespace {
@@ -47,6 +49,10 @@ namespace {
         // Methods
 
         // Http::Connection
+
+        virtual std::string GetPeerId() override {
+            return "mock-client";
+        }
 
         virtual void SetDataReceivedDelegate(DataReceivedDelegate newDataReceivedDelegate) override {
             dataReceivedDelegate = newDataReceivedDelegate;
@@ -388,11 +394,43 @@ TEST(ServerTests, ReleaseNetworkUponDestruction) {
 }
 
 TEST(ServerTests, ClientRequestInOnePiece) {
+    std::vector< std::string > diagnosticMessages;
     auto transport = std::make_shared< MockTransport >();
     Http::Server server;
+    server.SubscribeToDiagnostics(
+        [&diagnosticMessages](
+            std::string senderName,
+            size_t level,
+            std::string message
+        ){
+            diagnosticMessages.push_back(
+                SystemAbstractions::sprintf(
+                    "%s[%zu]: %s",
+                    senderName.c_str(),
+                    level,
+                    message.c_str()
+                )
+            );
+        },
+        0
+    );
     (void)server.Mobilize(transport, 1234);
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[3]: Now listening on port 1234",
+        }),
+        diagnosticMessages
+    );
+    diagnosticMessages.clear();
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[2]: New connection from mock-client",
+        }),
+        diagnosticMessages
+    );
+    diagnosticMessages.clear();
     ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
     const std::string request = (
         "GET /hello.txt HTTP/1.1\r\n"
@@ -422,6 +460,14 @@ TEST(ServerTests, ClientRequestInOnePiece) {
             connection->dataReceived.end()
         )
     );
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[1]: Received GET request for '/hello.txt' from mock-client",
+            "Http::Server[1]: Sent 404 'Not Found' response back to mock-client",
+        }),
+        diagnosticMessages
+    );
+    diagnosticMessages.clear();
 }
 
 TEST(ServerTests, ClientRequestInTwoPieces) {

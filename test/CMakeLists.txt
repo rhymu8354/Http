@@ -20,6 +20,7 @@ target_include_directories(${This} PRIVATE ..)
 target_link_libraries(${This} PUBLIC
     gtest_main
     Http
+    SystemAbstractions
     Uri
 )
 

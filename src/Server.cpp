@@ -7,6 +7,7 @@
  */
 
 #include <Http/Server.hpp>
+#include <inttypes.h>
 #include <memory>
 #include <set>
 #include <stddef.h>
@@ -188,7 +189,21 @@ namespace Http {
          */
         std::set< std::shared_ptr< ConnectionState > > activeConnections;
 
+        /**
+         * This is a helper object used to generate and publish
+         * diagnostic messages.
+         */
+        SystemAbstractions::DiagnosticsSender diagnosticsSender;
+
         // Methods
+
+        /**
+         * This is the constructor for the structure.
+         */
+        Impl()
+            : diagnosticsSender("Http::Server")
+        {
+        }
 
         /**
          * This method is called when new data is received from a connection.
@@ -210,7 +225,15 @@ namespace Http {
                     break;
                 }
                 std::string response;
+                unsigned int statusCode;
+                std::string reasonPhrase;
                 if (request->validity == Request::Validity::Valid) {
+                    diagnosticsSender.SendDiagnosticInformationFormatted(
+                        1, "Received %s request for '%s' from %s",
+                        request->method.c_str(),
+                        request->target.GenerateString().c_str(),
+                        connectionState->connection->GetPeerId().c_str()
+                    );
                     const std::string cannedResponse = (
                         "HTTP/1.1 404 Not Found\r\n"
                         "Content-Length: 13\r\n"
@@ -219,6 +242,8 @@ namespace Http {
                         "FeelsBadMan\r\n"
                     );
                     response = cannedResponse;
+                    statusCode = 404;
+                    reasonPhrase = "Not Found";
                 } else {
                     const std::string cannedResponse = (
                         "HTTP/1.1 400 Bad Request\r\n"
@@ -228,12 +253,20 @@ namespace Http {
                         "FeelsBadMan\r\n"
                     );
                     response = cannedResponse;
+                    statusCode = 400;
+                    reasonPhrase = "Bad Request";
                 }
                 connectionState->connection->SendData(
                     std::vector< uint8_t >(
                         response.begin(),
                         response.end()
                     )
+                );
+                diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1, "Sent %u '%s' response back to %s",
+                    statusCode,
+                    reasonPhrase.c_str(),
+                    connectionState->connection->GetPeerId().c_str()
                 );
                 if (request->validity != Request::Validity::Valid) {
                     if (request->validity == Request::Validity::InvalidUnrecoverable) {
@@ -252,6 +285,10 @@ namespace Http {
          *     This is the new connection has been established for the server.
          */
         void NewConnection(std::shared_ptr< Connection > connection) {
+            diagnosticsSender.SendDiagnosticInformationFormatted(
+                2, "New connection from %s",
+                connection->GetPeerId().c_str()
+            );
             const auto connectionState = std::make_shared< ConnectionState >();
             connectionState->connection = connection;
             (void)activeConnections.insert(connectionState);
@@ -277,19 +314,35 @@ namespace Http {
     {
     }
 
+    SystemAbstractions::DiagnosticsSender::SubscriptionToken Server::SubscribeToDiagnostics(
+        SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
+        size_t minLevel
+    ) {
+        return impl_->diagnosticsSender.SubscribeToDiagnostics(delegate, minLevel);
+    }
+
+    void Server::UnsubscribeFromDiagnostics(SystemAbstractions::DiagnosticsSender::SubscriptionToken subscriptionToken) {
+        impl_->diagnosticsSender.UnsubscribeFromDiagnostics(subscriptionToken);
+    }
+
     bool Server::Mobilize(
         std::shared_ptr< ServerTransport > transport,
         uint16_t port
     ) {
         impl_->transport = transport;
         if (
-            !impl_->transport->BindNetwork(
+            impl_->transport->BindNetwork(
                 port,
                 [this](std::shared_ptr< Connection > connection){
                     impl_->NewConnection(connection);
                 }
             )
         ) {
+            impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                3, "Now listening on port %" PRIu16,
+                port
+            );
+        } else {
             impl_->transport = nullptr;
             return false;
         }

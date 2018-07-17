@@ -16,6 +16,7 @@
 #include <MessageHeaders/MessageHeaders.hpp>
 #include <stdint.h>
 #include <string>
+#include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <Uri/Uri.hpp>
 
 namespace Http {
@@ -109,6 +110,38 @@ namespace Http {
          * This is the default constructor.
          */
         Server();
+
+        /**
+         * This method forms a new subscription to diagnostic
+         * messages published by the sender.
+         *
+         * @param[in] delegate
+         *     This is the function to call to deliver messages
+         *     to this subscriber.
+         *
+         * @param[in] minLevel
+         *     This is the minimum level of message that this subscriber
+         *     desires to receive.
+         *
+         * @return
+         *     A token representing the subscription is returned.
+         *     This may be passed to UnsubscribeFromDiagnostics
+         *     in order to terminate the subscription.
+         */
+        SystemAbstractions::DiagnosticsSender::SubscriptionToken SubscribeToDiagnostics(
+            SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
+            size_t minLevel = 0
+        );
+
+        /**
+         * This method terminates a subscription previously formed
+         * by calling the SubscribeToDiagnostics method.
+         *
+         * @param[in] subscriptionToken
+         *     This is the token returned from SubscribeToDiagnostics
+         *     when the subscription was formed.
+         */
+        void UnsubscribeFromDiagnostics(SystemAbstractions::DiagnosticsSender::SubscriptionToken subscriptionToken);
 
         /**
          * This method will cause the server to bind to the given transport

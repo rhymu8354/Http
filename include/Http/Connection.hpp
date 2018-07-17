@@ -12,6 +12,7 @@
 #include <functional>
 #include <memory>
 #include <stdint.h>
+#include <string>
 #include <vector>
 
 namespace Http {
@@ -40,6 +41,16 @@ namespace Http {
         typedef std::function< void() > BrokenDelegate;
 
         // Methods
+
+        /**
+         * This method returns a string that uniquely identifies
+         * the peer of this connection in the context of the transport.
+         *
+         * @return
+         *     A string that uniquely identifies the peer of this connection
+         *     in the context of the transport is returned.
+         */
+        virtual std::string GetPeerId() = 0;
 
         /**
          * This method sets the delegate to call whenever data is recevied

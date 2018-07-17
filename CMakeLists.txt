@@ -26,6 +26,7 @@ target_include_directories(${This} PUBLIC include)
 
 target_link_libraries(${This} PUBLIC
     MessageHeaders
+    SystemAbstractions
     Uri
 )
 
