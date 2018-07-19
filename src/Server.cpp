@@ -574,7 +574,19 @@ namespace Http {
         }
 
         // Check for "Host" header.
-        if (!request->headers.HasHeader("Host")) {
+        if (request->headers.HasHeader("Host")) {
+            const auto requestHost = request->headers.GetHeaderValue("Host");
+            auto serverHost = requestHost; // TODO: get from configuration
+            auto targetHost = request->target.GetHost();
+            if (targetHost.empty()) {
+                targetHost = serverHost;
+            }
+            if (requestHost != targetHost) {
+                request->validity = Request::Validity::InvalidRecoverable;
+                return request;
+            }
+            // TODO: check that target host matches server host.
+        } else {
             request->validity = Request::Validity::InvalidRecoverable;
             return request;
         }
