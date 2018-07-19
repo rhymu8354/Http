@@ -755,3 +755,37 @@ TEST_F(ServerTests, ParseInvalidRequestLineTooLong) {
     ASSERT_EQ(Http::Server::Request::Validity::InvalidUnrecoverable, request->validity);
 }
 
+TEST_F(ServerTests, ConnectionCloseOrNot) {
+    auto transport = std::make_shared< MockTransport >();
+    (void)server.Mobilize(transport, 1234);
+    for (int i = 0; i < 2; ++i) {
+        const auto tellServerToCloseAfterResponse = (i == 0);
+        const std::string connectionHeader = (
+            tellServerToCloseAfterResponse
+            ? "Connection: close\r\n"
+            : ""
+        );
+        auto connection = std::make_shared< MockConnection >();
+        transport->connectionDelegate(connection);
+        const std::string request = (
+            "GET /hello.txt HTTP/1.1\r\n"
+            "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
+            "Host: www.example.com\r\n"
+            "Accept-Language: en, mi\r\n"
+            + connectionHeader
+            + "\r\n"
+        );
+        connection->dataReceivedDelegate(
+            std::vector< uint8_t >(
+                request.begin(),
+                request.end()
+            )
+        );
+        if (tellServerToCloseAfterResponse) {
+            EXPECT_TRUE(connection->broken) << "We asked the server to close? " << tellServerToCloseAfterResponse;
+        } else {
+            EXPECT_FALSE(connection->broken) << "We asked the server to close? " << tellServerToCloseAfterResponse;
+        }
+    }
+}
+

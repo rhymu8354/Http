@@ -354,7 +354,19 @@ namespace Http {
                     reasonPhrase.c_str(),
                     connectionState->connection->GetPeerId().c_str()
                 );
-                if (request->validity != Request::Validity::Valid) {
+                if (request->validity == Request::Validity::Valid) {
+                    const auto connectionTokens = request->headers.GetHeaderMultiValue("Connection");
+                    bool closeRequested = false;
+                    for (const auto& connectionToken: connectionTokens) {
+                        if (connectionToken == "close") {
+                            closeRequested = true;
+                            break;
+                        }
+                    }
+                    if (closeRequested) {
+                        connectionState->connection->Break(true);
+                    }
+                } else {
                     if (request->validity == Request::Validity::InvalidUnrecoverable) {
                         connectionState->connection->Break(true);
                     }
