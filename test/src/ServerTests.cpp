@@ -221,7 +221,7 @@ TEST_F(ServerTests, ParseGetRequest) {
         "\r\n"
     );
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::Valid, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
     Uri::Uri expectedUri;
     expectedUri.ParseFromString("/hello.txt");
     ASSERT_EQ("GET", request->method);
@@ -247,7 +247,7 @@ TEST_F(ServerTests, ParsePostRequest) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::Valid, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
     Uri::Uri expectedUri;
     expectedUri.ParseFromString("/");
     ASSERT_EQ("POST", request->method);
@@ -273,7 +273,7 @@ TEST_F(ServerTests, ParseInvalidRequestNoMethod) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::InvalidRecoverable, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::InvalidRecoverable, request->state);
 }
 
 TEST_F(ServerTests, ParseInvalidRequestNoTarget) {
@@ -287,7 +287,7 @@ TEST_F(ServerTests, ParseInvalidRequestNoTarget) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::InvalidRecoverable, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::InvalidRecoverable, request->state);
 }
 
 TEST_F(ServerTests, ParseInvalidRequestBadProtocol) {
@@ -301,7 +301,7 @@ TEST_F(ServerTests, ParseInvalidRequestBadProtocol) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::InvalidRecoverable, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::InvalidRecoverable, request->state);
 }
 
 TEST_F(ServerTests, ParseInvalidDamagedHeader) {
@@ -315,7 +315,7 @@ TEST_F(ServerTests, ParseInvalidDamagedHeader) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::InvalidRecoverable, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::InvalidRecoverable, request->state);
 }
 
 TEST_F(ServerTests, ParseInvalidHeaderLineTooLong) {
@@ -333,7 +333,7 @@ TEST_F(ServerTests, ParseInvalidHeaderLineTooLong) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::InvalidUnrecoverable, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::InvalidUnrecoverable, request->state);
 }
 
 TEST_F(ServerTests, ParseValidHeaderLineLongerThanDefault) {
@@ -362,7 +362,7 @@ TEST_F(ServerTests, ParseValidHeaderLineLongerThanDefault) {
     ASSERT_EQ("1001", server.GetConfigurationItem("HeaderLineLimit"));
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::Valid, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
 }
 
 TEST_F(ServerTests, ParseInvalidBodyInsanelyTooLarge) {
@@ -377,7 +377,7 @@ TEST_F(ServerTests, ParseInvalidBodyInsanelyTooLarge) {
     size_t messageEnd = std::numeric_limits< size_t >::max();
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::InvalidUnrecoverable, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::InvalidUnrecoverable, request->state);
     ASSERT_EQ(0, messageEnd);
 }
 
@@ -393,7 +393,7 @@ TEST_F(ServerTests, ParseInvalidBodySlightlyTooLarge) {
     size_t messageEnd = std::numeric_limits< size_t >::max();
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::InvalidUnrecoverable, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::InvalidUnrecoverable, request->state);
     ASSERT_EQ(0, messageEnd);
 }
 
@@ -461,7 +461,7 @@ TEST_F(ServerTests, RequestWithNoContentLengthOrChunkedTransferEncodingHasNoBody
         "Hello, World!\r\n"
     );
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::Valid, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
     Uri::Uri expectedUri;
     expectedUri.ParseFromString("/hello.txt");
     ASSERT_TRUE(request->body.empty());
@@ -753,7 +753,7 @@ TEST_F(ServerTests, ParseInvalidRequestLineTooLong) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::Validity::InvalidUnrecoverable, request->validity);
+    ASSERT_EQ(Http::Server::Request::State::InvalidUnrecoverable, request->state);
 }
 
 TEST_F(ServerTests, ConnectionCloseOrNot) {

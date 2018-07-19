@@ -42,22 +42,52 @@ namespace Http {
             // Types
 
             /**
-             * These are the different validity states
-             * that a request can have.
+             * This type is used to track how much of the request
+             * has been constructed so far.
              */
-            enum class Validity {
+            enum class State {
                 /**
-                 * good request
+                 * In this state, we're still waiting to construct
+                 * the full request line.
                  */
-                Valid,
+                RequestLine,
 
                 /**
-                 * bad request, but server can keep connection
+                 * In this state, we've constructed the request
+                 * line, and possibly some header lines, but haven't yet
+                 * constructed all of the header lines.
+                 */
+                Headers,
+
+                /**
+                 * In this state, we've constructed the request
+                 * line and headers, and possibly some of the body, but
+                 * haven't yet constructed all of the body.
+                 */
+                Body,
+
+                /**
+                 * In this state, the request is fully constructed
+                 * and has passed all validity checks.
+                 */
+                Complete,
+
+                /**
+                 * In this state, the request is fully constructed,
+                 * but fails one or more validity checks, in such
+                 * a way that it should not cause the connection
+                 * from which it was constructed to be closed.
                  */
                 InvalidRecoverable,
 
                 /**
-                 * bad request, and server should close connection
+                 * In this state, the request is fully constructed,
+                 * but fails one or more validity checks, in such
+                 * a way that the connection from which it was
+                 * constructed should be closed, either for security
+                 * reasons, or because it would be impossible
+                 * or unlikely to receive a valid request after
+                 * this one.
                  */
                 InvalidUnrecoverable,
             };
@@ -93,7 +123,19 @@ namespace Http {
              * and if not, whether or not the connection can
              * still be used.
              */
-            Validity validity = Validity::Valid;
+            State state = State::RequestLine;
+
+            // Methods
+
+            /**
+             * This method returns an indication of whether or not the request
+             * has been fully constructed (valid or not).
+             *
+             * @return
+             *     An indication of whether or not the request
+             *     has been fully constructed (valid or not) is returned.
+             */
+            bool IsComplete() const;
         };
 
         // Lifecycle management
@@ -258,16 +300,17 @@ namespace Http {
 
     /**
      * This is a support function for Google Test to print out
-     * values of the Server::Request::Validity class.
+     * values of the Server::Request::State class.
      *
-     * @param[in] validity
-     *     This is the validity value to print.
+     * @param[in] state
+     *     This is the server request state value to print.
      *
      * @param[in] os
-     *     This points to the stream to which to print the validity value.
+     *     This points to the stream to which to print the
+     *     server request state value.
      */
     void PrintTo(
-        const Server::Request::Validity& validity,
+        const Server::Request::State& state,
         std::ostream* os
     );
 

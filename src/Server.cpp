@@ -131,34 +131,6 @@ namespace {
      * about a single connection from a client.
      */
     struct ConnectionState {
-        // Types
-
-        /**
-         * This type is used to track how much of the next request
-         * has been parsed so far.
-         */
-        enum class RequestParsingState {
-            /**
-             * In this state, we're still waiting to receive
-             * the full request line.
-             */
-            RequestLine,
-
-            /**
-             * In this state, we've received and parsed the request
-             * line, and possibly some header lines, but haven't yet
-             * received all of the header lines.
-             */
-            Headers,
-
-            /**
-             * In this state, we've received and parsed the request
-             * line and headers, and possibly some of the body, but
-             * haven't yet received all of the body.
-             */
-            Body,
-        };
-
         // Properties
 
         /**
@@ -171,12 +143,6 @@ namespace {
          * received from the client.
          */
         std::string reassemblyBuffer;
-
-        /**
-         * This indicates how much of the next request
-         * has been parsed so far.
-         */
-        RequestParsingState requestParsingState = RequestParsingState::RequestLine;
 
         /**
          * This is the state of the next request, while it's still
@@ -297,50 +263,53 @@ namespace Http {
         }
 
         /**
-         * This method parses the given string as a raw HTTP request message.
-         * If the string parses correctly, the equivalent Request is returned.
-         * Otherwise, nullptr is returned.
+         * This method is called one or more times to incrementally parse
+         * a raw HTTP request message.  For the first call, pass in a newly-
+         * constructed request object, and the beginning of the raw
+         * HTTP request message.  Contine calling with the same request
+         * object and subsequent pieces of the raw HTTP request message,
+         * until the request is fully parsed, as indicated by its
+         * requestParsingState transitioning to RequestParsingState::Complete,
+         * RequestParsingState::InvalidRecoverable, or
+         * RequestParsingState::InvalidUnrecoverable.
          *
-         * @param[in] rawRequest
-         *     This is the raw HTTP request message as a single string.
+         * @param[in,out] request
+         *     This is the request being parsed.
          *
-         * @param[out] messageEnd
-         *     This is where to store a count of the number of characters
-         *     that actually made up the request message.  Presumably,
-         *     any characters past this point belong to another message or
-         *     are outside the scope of HTTP.
+         * @param[in] nextRawRequestPart
+         *     This is the next part of the raw HTTP request message.
          *
          * @return
-         *     The Request equivalent to the given raw HTTP request string
-         *     is returned.
-         *
-         * @retval nullptr
-         *     This is returned if the given rawRequest did not parse correctly.
+         *     A count of the number of characters that were taken from
+         *     the given input string is returned. Presumably,
+         *     any characters past this point belong to another message or
+         *     are outside the scope of HTTP.
          */
-        std::shared_ptr< Request > ParseRequest(
-            const std::string& rawRequest,
-            size_t& messageEnd
+        size_t ParseRequest(
+            std::shared_ptr< Request > request,
+            const std::string& nextRawRequestPart
         ) {
-            const auto request = std::make_shared< Request >();
-            messageEnd = 0;
+            size_t messageEnd = 0;
+            request->state = Request::State::Complete;
 
             // First, extract and parse the request line.
-            const auto requestLineEnd = rawRequest.find(CRLF);
+            const auto requestLineEnd = nextRawRequestPart.find(CRLF);
             if (requestLineEnd == std::string::npos) {
-                if (rawRequest.length() > headerLineLimit) {
-                    request->validity = Request::Validity::InvalidUnrecoverable;
-                    return request;
+                if (nextRawRequestPart.length() > headerLineLimit) {
+                    request->state = Request::State::InvalidUnrecoverable;
+                    return messageEnd;
                 }
-                return nullptr;
+                request->state = Request::State::RequestLine;
+                return messageEnd;
             }
             const auto requestLineLength = requestLineEnd;
             if (requestLineLength > headerLineLimit) {
-                request->validity = Request::Validity::InvalidUnrecoverable;
-                return request;
+                request->state = Request::State::InvalidUnrecoverable;
+                return messageEnd;
             }
-            const auto requestLine = rawRequest.substr(0, requestLineLength);
+            const auto requestLine = nextRawRequestPart.substr(0, requestLineLength);
             if (!ParseRequestLine(request, requestLine)) {
-                request->validity = Request::Validity::InvalidRecoverable;
+                request->state = Request::State::InvalidRecoverable;
             }
 
             // Second, parse the message headers and identify where the body begins.
@@ -349,7 +318,7 @@ namespace Http {
             request->headers.SetLineLimit(headerLineLimit);
             switch (
                 request->headers.ParseRawMessage(
-                    rawRequest.substr(headersOffset),
+                    nextRawRequestPart.substr(headersOffset),
                     bodyOffset
                 )
             ) {
@@ -357,16 +326,17 @@ namespace Http {
                 } break;
 
                 case MessageHeaders::MessageHeaders::Validity::ValidIncomplete: {
-                } return nullptr;
+                    request->state = Request::State::Headers;
+                } return messageEnd;
 
                 case MessageHeaders::MessageHeaders::Validity::InvalidRecoverable: {
-                    request->validity = Request::Validity::InvalidRecoverable;
+                    request->state = Request::State::InvalidRecoverable;
                 } break;
 
                 case MessageHeaders::MessageHeaders::Validity::InvalidUnrecoverable:
                 default: {
-                    request->validity = Request::Validity::InvalidUnrecoverable;
-                    return request;
+                    request->state = Request::State::InvalidUnrecoverable;
+                    return messageEnd;
                 }
             }
 
@@ -385,18 +355,18 @@ namespace Http {
                     (requestHost != targetHost)
                     || (requestHost != serverHost)
                 ) {
-                    request->validity = Request::Validity::InvalidRecoverable;
-                    return request;
+                    request->state = Request::State::InvalidRecoverable;
+                    return messageEnd;
                 }
             } else {
-                request->validity = Request::Validity::InvalidRecoverable;
-                return request;
+                request->state = Request::State::InvalidRecoverable;
+                return messageEnd;
             }
 
             // Check for "Content-Length" header.  If present, use this to
             // determine how many characters should be in the body.
             bodyOffset += headersOffset;
-            const auto bytesAvailableForBody = rawRequest.length() - bodyOffset;
+            const auto bytesAvailableForBody = nextRawRequestPart.length() - bodyOffset;
 
             // Finally, extract the body.  If there is a "Content-Length"
             // header, we carefully carve exactly that number of characters
@@ -405,24 +375,25 @@ namespace Http {
             if (request->headers.HasHeader("Content-Length")) {
                 size_t contentLength;
                 if (!ParseSize(request->headers.GetHeaderValue("Content-Length"), contentLength)) {
-                    request->validity = Request::Validity::InvalidUnrecoverable;
-                    return request;
+                    request->state = Request::State::InvalidUnrecoverable;
+                    return messageEnd;
                 }
                 if (contentLength > MAX_CONTENT_LENGTH) {
-                    request->validity = Request::Validity::InvalidUnrecoverable;
-                    return request;
+                    request->state = Request::State::InvalidUnrecoverable;
+                    return messageEnd;
                 }
                 if (contentLength > bytesAvailableForBody) {
-                    return nullptr;
+                    request->state = Request::State::Body;
+                    return messageEnd;
                 } else {
-                    request->body = rawRequest.substr(bodyOffset, contentLength);
+                    request->body = nextRawRequestPart.substr(bodyOffset, contentLength);
                     messageEnd = bodyOffset + contentLength;
                 }
             } else {
                 request->body.clear();
                 messageEnd = bodyOffset;
             }
-            return request;
+            return messageEnd;
         }
 
         /**
@@ -442,12 +413,12 @@ namespace Http {
         std::shared_ptr< Http::Server::Request > TryRequestAssembly(
             std::shared_ptr< ConnectionState > connectionState
         ) {
-            size_t messageEnd;
-            const auto request = ParseRequest(
-                connectionState->reassemblyBuffer,
-                messageEnd
+            auto request = std::make_shared< Request >();
+            const auto messageEnd = ParseRequest(
+                request,
+                connectionState->reassemblyBuffer
             );
-            if (request == nullptr) {
+            if (!request->IsComplete()) {
                 return nullptr;
             }
             connectionState->reassemblyBuffer.erase(
@@ -479,7 +450,7 @@ namespace Http {
                 std::string response;
                 unsigned int statusCode;
                 std::string reasonPhrase;
-                if (request->validity == Request::Validity::Valid) {
+                if (request->state == Request::State::Complete) {
                     diagnosticsSender.SendDiagnosticInformationFormatted(
                         1, "Received %s request for '%s' from %s",
                         request->method.c_str(),
@@ -520,7 +491,7 @@ namespace Http {
                     reasonPhrase.c_str(),
                     connectionState->connection->GetPeerId().c_str()
                 );
-                if (request->validity == Request::Validity::Valid) {
+                if (request->state == Request::State::Complete) {
                     const auto connectionTokens = request->headers.GetHeaderMultiValue("Connection");
                     bool closeRequested = false;
                     for (const auto& connectionToken: connectionTokens) {
@@ -533,7 +504,7 @@ namespace Http {
                         connectionState->connection->Break(true);
                     }
                 } else {
-                    if (request->validity == Request::Validity::InvalidUnrecoverable) {
+                    if (request->state == Request::State::InvalidUnrecoverable) {
                         connectionState->connection->Break(true);
                     }
                     break;
@@ -586,6 +557,14 @@ namespace Http {
             );
         }
     };
+
+    bool Server::Request::IsComplete() const {
+        return (
+            (state == State::Complete)
+            || (state == State::InvalidRecoverable)
+            || (state == State::InvalidUnrecoverable)
+        );
+    }
 
     Server::~Server() {
         Demobilize();
@@ -683,28 +662,42 @@ namespace Http {
 
     auto Server::ParseRequest(const std::string& rawRequest) -> std::shared_ptr< Request > {
         size_t messageEnd;
-        return impl_->ParseRequest(rawRequest, messageEnd);
+        return ParseRequest(rawRequest, messageEnd);
     }
 
     auto Server::ParseRequest(
         const std::string& rawRequest,
         size_t& messageEnd
     ) -> std::shared_ptr< Request > {
-        return impl_->ParseRequest(rawRequest, messageEnd);
+        auto request = std::make_shared< Request >();
+        messageEnd = impl_->ParseRequest(request, rawRequest);
+        if (!request->IsComplete()) {
+            request = nullptr;
+        }
+        return request;
     }
 
     void PrintTo(
-        const Server::Request::Validity& validity,
+        const Server::Request::State& validity,
         std::ostream* os
     ) {
         switch (validity) {
-            case Server::Request::Validity::Valid: {
-                *os << "VALID";
+            case Server::Request::State::RequestLine: {
+                *os << "Constructing Request line";
             } break;
-            case Server::Request::Validity::InvalidRecoverable: {
+            case Server::Request::State::Headers: {
+                *os << "Constructing Headers";
+            } break;
+            case Server::Request::State::Body: {
+                *os << "Constructing Body";
+            } break;
+            case Server::Request::State::Complete: {
+                *os << "COMPLETE";
+            } break;
+            case Server::Request::State::InvalidRecoverable: {
                 *os << "INVALID (recoverable)";
             } break;
-            case Server::Request::Validity::InvalidUnrecoverable: {
+            case Server::Request::State::InvalidUnrecoverable: {
                 *os << "INVALID (not recoverable)";
             } break;
             default: {
