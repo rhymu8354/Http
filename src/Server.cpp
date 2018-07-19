@@ -573,6 +573,12 @@ namespace Http {
             }
         }
 
+        // Check for "Host" header.
+        if (!request->headers.HasHeader("Host")) {
+            request->validity = Request::Validity::InvalidRecoverable;
+            return request;
+        }
+
         // Check for "Content-Length" header.  If present, use this to
         // determine how many characters should be in the body.
         bodyOffset += headersOffset;

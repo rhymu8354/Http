@@ -8,6 +8,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <Http/Client.hpp>
 #include <Http/Server.hpp>
 #include <limits>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
@@ -789,3 +790,30 @@ TEST_F(ServerTests, ConnectionCloseOrNot) {
     }
 }
 
+TEST_F(ServerTests, HostMissing) {
+    auto transport = std::make_shared< MockTransport >();
+    (void)server.Mobilize(transport, 1234);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    const std::string request = (
+        "GET /hello.txt HTTP/1.1\r\n"
+        "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
+        "Accept-Language: en, mi\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    const auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_FALSE(response == nullptr);
+    ASSERT_EQ(400, response->statusCode);
+}
