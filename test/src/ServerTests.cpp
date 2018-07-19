@@ -273,7 +273,8 @@ TEST_F(ServerTests, ParseInvalidRequestNoMethod) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::InvalidRecoverable, request->state);
+    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_FALSE(request->valid);
 }
 
 TEST_F(ServerTests, ParseInvalidRequestNoTarget) {
@@ -287,7 +288,8 @@ TEST_F(ServerTests, ParseInvalidRequestNoTarget) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::InvalidRecoverable, request->state);
+    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_FALSE(request->valid);
 }
 
 TEST_F(ServerTests, ParseInvalidRequestBadProtocol) {
@@ -301,7 +303,8 @@ TEST_F(ServerTests, ParseInvalidRequestBadProtocol) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::InvalidRecoverable, request->state);
+    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_FALSE(request->valid);
 }
 
 TEST_F(ServerTests, ParseInvalidDamagedHeader) {
@@ -315,7 +318,7 @@ TEST_F(ServerTests, ParseInvalidDamagedHeader) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::InvalidRecoverable, request->state);
+    ASSERT_EQ(Http::Server::Request::State::Error, request->state);
 }
 
 TEST_F(ServerTests, ParseInvalidHeaderLineTooLong) {
@@ -333,7 +336,7 @@ TEST_F(ServerTests, ParseInvalidHeaderLineTooLong) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::InvalidUnrecoverable, request->state);
+    ASSERT_EQ(Http::Server::Request::State::Error, request->state);
 }
 
 TEST_F(ServerTests, ParseValidHeaderLineLongerThanDefault) {
@@ -377,8 +380,7 @@ TEST_F(ServerTests, ParseInvalidBodyInsanelyTooLarge) {
     size_t messageEnd = std::numeric_limits< size_t >::max();
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::InvalidUnrecoverable, request->state);
-    ASSERT_EQ(0, messageEnd);
+    ASSERT_EQ(Http::Server::Request::State::Error, request->state);
 }
 
 TEST_F(ServerTests, ParseInvalidBodySlightlyTooLarge) {
@@ -393,8 +395,7 @@ TEST_F(ServerTests, ParseInvalidBodySlightlyTooLarge) {
     size_t messageEnd = std::numeric_limits< size_t >::max();
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::InvalidUnrecoverable, request->state);
-    ASSERT_EQ(0, messageEnd);
+    ASSERT_EQ(Http::Server::Request::State::Error, request->state);
 }
 
 TEST_F(ServerTests, ParseIncompleteBodyRequest) {
@@ -672,7 +673,7 @@ TEST_F(ServerTests, ClientInvalidRequestRecoverable) {
             connection->dataReceived.end()
         )
     );
-    ASSERT_FALSE(connection->broken);
+    ASSERT_TRUE(connection->broken);
 }
 
 TEST_F(ServerTests, ClientInvalidRequestUnrecoverable) {
@@ -753,7 +754,7 @@ TEST_F(ServerTests, ParseInvalidRequestLineTooLong) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::InvalidUnrecoverable, request->state);
+    ASSERT_EQ(Http::Server::Request::State::Error, request->state);
 }
 
 TEST_F(ServerTests, ConnectionCloseOrNot) {

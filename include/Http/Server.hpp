@@ -67,32 +67,29 @@ namespace Http {
                 Body,
 
                 /**
-                 * In this state, the request is fully constructed
-                 * and has passed all validity checks.
+                 * In this state, the request either fully constructed
+                 * or is invalid, but the connection from which the request
+                 * was constructed can remain open to accept another request.
                  */
                 Complete,
 
                 /**
-                 * In this state, the request is fully constructed,
-                 * but fails one or more validity checks, in such
-                 * a way that it should not cause the connection
-                 * from which it was constructed to be closed.
-                 */
-                InvalidRecoverable,
-
-                /**
-                 * In this state, the request is fully constructed,
-                 * but fails one or more validity checks, in such
-                 * a way that the connection from which it was
-                 * constructed should be closed, either for security
+                 * In this state, the connection from which the request
+                 * was constructed should be closed, either for security
                  * reasons, or because it would be impossible
                  * or unlikely to receive a valid request after
                  * this one.
                  */
-                InvalidUnrecoverable,
+                Error,
             };
 
             // Properties
+
+            /**
+             * This flag indicates whether or not the request
+             * has passed all validity checks.
+             */
+            bool valid = true;
 
             /**
              * This indicates the request method to be performed on the
@@ -135,7 +132,7 @@ namespace Http {
              *     An indication of whether or not the request
              *     has been fully constructed (valid or not) is returned.
              */
-            bool IsComplete() const;
+            bool IsCompleteOrError() const;
         };
 
         // Lifecycle management
