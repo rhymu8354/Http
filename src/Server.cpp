@@ -346,12 +346,10 @@ namespace Http {
                                 (requestHost != targetHost)
                                 || (requestHost != serverHost)
                             ) {
-                                request->state = Request::State::Error;
-                                return messageEnd;
+                                request->valid = false;
                             }
                         } else {
-                            request->state = Request::State::Error;
-                            return messageEnd;
+                            request->valid = false;
                         }
                     } break;
 
