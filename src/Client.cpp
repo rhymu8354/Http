@@ -156,10 +156,13 @@ namespace Http {
                 bodyOffset
             )
         ) {
-            case MessageHeaders::MessageHeaders::Validity::ValidComplete: break;
-            case MessageHeaders::MessageHeaders::Validity::ValidIncomplete: return nullptr;
-            case MessageHeaders::MessageHeaders::Validity::InvalidRecoverable: return nullptr;
-            case MessageHeaders::MessageHeaders::Validity::InvalidUnrecoverable:
+            case MessageHeaders::MessageHeaders::State::Complete: {
+                if (!response->headers.IsValid()) {
+                    return nullptr;
+                }
+            } break;
+            case MessageHeaders::MessageHeaders::State::Incomplete: return nullptr;
+            case MessageHeaders::MessageHeaders::State::Error: return nullptr;
             default: return nullptr;
         }
 

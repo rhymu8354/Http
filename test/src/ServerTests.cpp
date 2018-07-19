@@ -318,7 +318,9 @@ TEST_F(ServerTests, ParseInvalidDamagedHeader) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Error, request->state);
+    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_FALSE(request->valid);
+    ASSERT_EQ(rawRequest.length(), messageEnd);
 }
 
 TEST_F(ServerTests, ParseInvalidHeaderLineTooLong) {
@@ -645,9 +647,14 @@ TEST_F(ServerTests, ClientInvalidRequestRecoverable) {
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
     ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
-    const std::string request = (
+    const std::string requests = (
         "GET /hello.txt HTTP/1.1\r\n"
         "User-Agent curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
+        "Host: www.example.com\r\n"
+        "Accept-Language: en, mi\r\n"
+        "\r\n"
+        "GET /hello.txt HTTP/1.1\r\n"
+        "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
         "Host: www.example.com\r\n"
         "Accept-Language: en, mi\r\n"
         "\r\n"
@@ -655,25 +662,30 @@ TEST_F(ServerTests, ClientInvalidRequestRecoverable) {
     ASSERT_TRUE(connection->dataReceived.empty());
     connection->dataReceivedDelegate(
         std::vector< uint8_t >(
-            request.begin(),
-            request.end()
+            requests.begin(),
+            requests.end()
         )
     );
-    const std::string expectedResponse = (
+    const std::string expectedResponses = (
         "HTTP/1.1 400 Bad Request\r\n"
+        "Content-Length: 13\r\n"
+        "Content-Type: text/plain\r\n"
+        "\r\n"
+        "FeelsBadMan\r\n"
+        "HTTP/1.1 404 Not Found\r\n"
         "Content-Length: 13\r\n"
         "Content-Type: text/plain\r\n"
         "\r\n"
         "FeelsBadMan\r\n"
     );
     ASSERT_EQ(
-        expectedResponse,
+        expectedResponses,
         std::string(
             connection->dataReceived.begin(),
             connection->dataReceived.end()
         )
     );
-    ASSERT_TRUE(connection->broken);
+    ASSERT_FALSE(connection->broken);
 }
 
 TEST_F(ServerTests, ClientInvalidRequestUnrecoverable) {

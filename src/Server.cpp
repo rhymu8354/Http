@@ -318,14 +318,17 @@ namespace Http {
             if (request->state == Request::State::Headers) {
                 request->headers.SetLineLimit(headerLineLimit);
                 size_t bodyOffset;
-                const auto headersValidity = request->headers.ParseRawMessage(
+                const auto headersState = request->headers.ParseRawMessage(
                     nextRawRequestPart.substr(messageEnd),
                     bodyOffset
                 );
                 messageEnd += bodyOffset;
-                switch (headersValidity) {
-                    case MessageHeaders::MessageHeaders::Validity::ValidComplete: {
+                switch (headersState) {
+                    case MessageHeaders::MessageHeaders::State::Complete: {
                         // Done with parsing headers; next will be body.
+                        if (!request->headers.IsValid()) {
+                            request->valid = false;
+                        }
                         request->state = Request::State::Body;
 
                         // Check for "Host" header.
@@ -352,15 +355,10 @@ namespace Http {
                         }
                     } break;
 
-                    case MessageHeaders::MessageHeaders::Validity::ValidIncomplete: {
+                    case MessageHeaders::MessageHeaders::State::Incomplete: {
                     } return messageEnd;
 
-                    case MessageHeaders::MessageHeaders::Validity::InvalidRecoverable: {
-                        request->state = Request::State::Error;
-                        return messageEnd;
-                    } break;
-
-                    case MessageHeaders::MessageHeaders::Validity::InvalidUnrecoverable:
+                    case MessageHeaders::MessageHeaders::State::Error:
                     default: {
                         request->state = Request::State::Error;
                         return messageEnd;
@@ -459,7 +457,10 @@ namespace Http {
                 std::string response;
                 unsigned int statusCode;
                 std::string reasonPhrase;
-                if (request->state == Request::State::Complete) {
+                if (
+                    (request->state == Request::State::Complete)
+                    && request->valid
+                ) {
                     diagnosticsSender.SendDiagnosticInformationFormatted(
                         1, "Received %s request for '%s' from %s",
                         request->method.c_str(),
