@@ -743,3 +743,15 @@ TEST_F(ServerTests, ClientShouldNotBeReleasedDuringBreakDelegateCall) {
         connectionRaw->callingDelegate = false;
     }
 }
+
+TEST_F(ServerTests, ParseInvalidRequestLineTooLong) {
+    size_t messageEnd;
+    const std::string uriTooLong(1000, 'X');
+    const std::string rawRequest = (
+        "GET " + uriTooLong + " HTTP/1.1\r\n"
+    );
+    const auto request = server.ParseRequest(rawRequest, messageEnd);
+    ASSERT_FALSE(request == nullptr);
+    ASSERT_EQ(Http::Server::Request::Validity::InvalidUnrecoverable, request->validity);
+}
+
