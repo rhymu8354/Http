@@ -7,6 +7,7 @@
  */
 
 #include <condition_variable>
+#include <deque>
 #include <Http/Server.hpp>
 #include <inttypes.h>
 #include <map>
@@ -15,6 +16,7 @@
 #include <set>
 #include <stddef.h>
 #include <stdio.h>
+#include <string>
 #include <SystemAbstractions/StringExtensions.hpp>
 #include <thread>
 
@@ -36,6 +38,37 @@ namespace {
      * This is the default maximum length allowed for a request header line.
      */
     constexpr size_t DEFAULT_HEADER_LINE_LIMIT = 1000;
+
+    /**
+     * This is used to record what resources are currently supported
+     * by the server, and through which handler delegates.
+     */
+    struct ResourceSpace {
+        /**
+         * This is the name of the resource space, used as the key
+         * to find it amongst all the subspaces of the superspace.
+         */
+        std::string name;
+
+        /**
+         * This is the delegate to call to handle any resource requests
+         * within this space.  If nullptr, the space is divided into
+         * subspaces.
+         */
+        Http::Server::ResourceDelegate handler;
+
+        /**
+         * If the space is divided into subspaces, these are the
+         * subspaces which have currently registered handler delegates.
+         */
+        std::map< std::string, std::shared_ptr< ResourceSpace > > subspaces;
+
+        /**
+         * This points back to the resource superspace containing
+         * this subspace.
+         */
+        std::weak_ptr< ResourceSpace > superspace;
+    };
 
     /**
      * This function parses the given string as a size
@@ -213,6 +246,11 @@ namespace Http {
          * This flag indicates whether or not the reaper thread should stop.
          */
         bool stopReaper = false;
+
+        /**
+         * This represents the entire space of resources under this server.
+         */
+        std::shared_ptr< ResourceSpace > resources;
 
         /**
          * This is used to synchronize access to the server.
@@ -452,7 +490,7 @@ namespace Http {
                 if (request == nullptr) {
                     break;
                 }
-                std::string response;
+                std::string responseText;
                 unsigned int statusCode;
                 std::string reasonPhrase;
                 if (
@@ -465,16 +503,51 @@ namespace Http {
                         request->target.GenerateString().c_str(),
                         connectionState->connection->GetPeerId().c_str()
                     );
-                    const std::string cannedResponse = (
-                        "HTTP/1.1 404 Not Found\r\n"
-                        "Content-Length: 13\r\n"
-                        "Content-Type: text/plain\r\n"
-                        "\r\n"
-                        "FeelsBadMan\r\n"
+                    const auto originalResourcePath = request->target.GetPath();
+                    std::deque< std::string > resourcePath(
+                        originalResourcePath.begin(),
+                        originalResourcePath.end()
                     );
-                    response = cannedResponse;
-                    statusCode = 404;
-                    reasonPhrase = "Not Found";
+                    if (
+                        !resourcePath.empty()
+                        && (resourcePath.front() == "")
+                    ) {
+                        (void)resourcePath.pop_front();
+                    }
+                    std::shared_ptr< ResourceSpace > resource = resources;
+                    while (
+                        (resource != nullptr)
+                        && !resourcePath.empty()
+                    ) {
+                        const auto subspaceEntry = resource->subspaces.find(resourcePath.front());
+                        if (subspaceEntry == resource->subspaces.end()) {
+                            break;
+                        } else {
+                            resource = subspaceEntry->second;
+                            resourcePath.pop_front();
+                        }
+                    }
+                    if (
+                        (resource != nullptr)
+                        && (resource->handler != nullptr)
+                    ) {
+                        request->target.SetPath({ resourcePath.begin(), resourcePath.end() });
+                        const auto response = resource->handler(request);
+                        responseText = response->Generate();
+                        statusCode = response->statusCode;
+                        reasonPhrase = response->reasonPhrase;
+                    } else {
+                        const std::string cannedResponse = (
+                            "HTTP/1.1 404 Not Found\r\n"
+                            "Content-Length: 13\r\n"
+                            "Content-Type: text/plain\r\n"
+                            "\r\n"
+                            "FeelsBadMan\r\n"
+                        );
+                        responseText = cannedResponse;
+                        statusCode = 404;
+                        reasonPhrase = "Not Found";
+                    }
                 } else {
                     const std::string cannedResponse = (
                         "HTTP/1.1 400 Bad Request\r\n"
@@ -483,14 +556,14 @@ namespace Http {
                         "\r\n"
                         "FeelsBadMan\r\n"
                     );
-                    response = cannedResponse;
+                    responseText = cannedResponse;
                     statusCode = 400;
                     reasonPhrase = "Bad Request";
                 }
                 connectionState->connection->SendData(
                     std::vector< uint8_t >(
-                        response.begin(),
-                        response.end()
+                        responseText.begin(),
+                        responseText.end()
                     )
                 );
                 diagnosticsSender.SendDiagnosticInformationFormatted(
@@ -633,6 +706,50 @@ namespace Http {
                 );
                 impl_->headerLineLimit = newHeaderLineLimit;
             }
+        }
+    }
+
+    auto Server::RegisterResource(
+        const std::vector< std::string >& resourceSubspacePath,
+        ResourceDelegate resourceDelegate
+    ) -> UnregistrationDelegate {
+        std::shared_ptr< ResourceSpace > space = nullptr;
+        for (const auto& pathSegment: resourceSubspacePath) {
+            if (space == nullptr) {
+                space = impl_->resources = std::make_shared< ResourceSpace >();
+            }
+            std::shared_ptr< ResourceSpace > subspace;
+            auto subspacesEntry = space->subspaces.find(pathSegment);
+            if (subspacesEntry == space->subspaces.end()) {
+                subspace = space->subspaces[pathSegment] = std::make_shared< ResourceSpace >();
+                subspace->name = pathSegment;
+                subspace->superspace = space;
+            } else {
+                subspace = subspacesEntry->second;
+            }
+            space = subspace;
+        }
+        if (space->handler == nullptr) {
+            space->handler = resourceDelegate;
+            return [this, space]{
+                auto currentSpace = space;
+                for (;;) {
+                    auto superspace = currentSpace->superspace.lock();
+                    if (superspace == nullptr) {
+                        impl_->resources = nullptr;
+                        break;
+                    } else {
+                        (void)superspace->subspaces.erase(currentSpace->name);
+                    }
+                    if (superspace->subspaces.empty()) {
+                        currentSpace = superspace;
+                    } else {
+                        break;
+                    }
+                }
+            };
+        } else {
+            return nullptr;
         }
     }
 

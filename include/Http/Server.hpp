@@ -11,6 +11,8 @@
 
 #include "ServerTransport.hpp"
 
+#include <functional>
+#include <Http/Client.hpp>
 #include <ostream>
 #include <memory>
 #include <MessageHeaders/MessageHeaders.hpp>
@@ -135,6 +137,29 @@ namespace Http {
             bool IsCompleteOrError() const;
         };
 
+        /**
+         * This is type of function which can be registered to handle
+         * HTTP requests.
+         *
+         * @param[in] request
+         *     This is the request to apply to the resource.
+         *
+         * @return
+         *     The response to be returned to the client is returned.
+         */
+        typedef std::function<
+            std::shared_ptr< Client::Response >(
+                std::shared_ptr< Request > request
+            )
+        > ResourceDelegate;
+
+        /**
+         * This is the type of function returned by RegisterResource,
+         * to be called when the resource should be unregistered
+         * from the server.
+         */
+        typedef std::function< void() > UnregistrationDelegate;
+
         // Lifecycle management
     public:
         ~Server();
@@ -208,6 +233,34 @@ namespace Http {
         void SetConfigurationItem(
             const std::string& key,
             const std::string& value
+        );
+
+        /**
+         * This method registers the given delegate to be called in order
+         * to generate a response for any request that comes in to the server
+         * with a target URI which identifies a resource within the given
+         * resource subspace of the server.
+         *
+         * @param[in] resourceSubspacePath
+         *     This identifies the subspace of resources that we want
+         *     the given delegate to be responsible for handling.
+         *
+         * @param[in] resourceDelegate
+         *     This is the function to call in order to apply the given
+         *     request and come up with a response when the request
+         *     identifies a resource within the given resource subspace
+         *     of the server.
+         *
+         * @return
+         *     A function is returned which, if called, revokes
+         *     the registration of the resource delegate, so that subsequent
+         *     requests to any resource within the registered resource
+         *     substate are no longer handled by the
+         *     formerly-registered delegate.
+         */
+        UnregistrationDelegate RegisterResource(
+            const std::vector< std::string >& resourceSubspacePath,
+            ResourceDelegate resourceDelegate
         );
 
         /**

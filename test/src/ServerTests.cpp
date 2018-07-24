@@ -944,3 +944,88 @@ TEST_F(ServerTests, HostNotMatchingServerUri) {
         ++index;
     }
 }
+
+TEST_F(ServerTests, RegisterResourceDelegate) {
+    auto transport = std::make_shared< MockTransport >();
+    (void)server.Mobilize(transport, 1234);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Query the server before registering the resource delegate,
+    // and expect the canned 404 response since nothing is registered
+    // to handle the request yet.
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(404, response->statusCode);
+    connection->dataReceived.clear();
+
+    // Register a delegate to handle the source, and then query the server
+    // a second time.  Expect the resource request to be routed to the delegate
+    // and handled correctly this time.
+    std::vector< Uri::Uri > requestsReceived;
+    const auto resourceDelegate = [&requestsReceived](
+        std::shared_ptr< Http::Server::Request > request
+    ){
+        const auto response = std::make_shared< Http::Client::Response >();
+        response->statusCode = 200;
+        response->reasonPhrase = "OK";
+        requestsReceived.push_back(request->target);
+        return response;
+    };
+    const auto unregistrationDelegate = server.RegisterResource({ "foo" }, resourceDelegate);
+    ASSERT_TRUE(requestsReceived.empty());
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(200, response->statusCode);
+    ASSERT_EQ(1, requestsReceived.size());
+    ASSERT_EQ(
+        (std::vector< std::string >{ "bar" }),
+        requestsReceived[0].GetPath()
+    );
+    connection->dataReceived.clear();
+
+    // Unregister the resource delegate and then query the server
+    // a third time.  Since the resource is no longer registered,
+    // we should get the canned 404 response back again.
+    unregistrationDelegate();
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(404, response->statusCode);
+    connection->dataReceived.clear();
+}
