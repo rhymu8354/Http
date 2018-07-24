@@ -31,6 +31,8 @@ namespace Http {
          * decomposed into its various elements.
          */
         struct Response {
+            // Properties
+
             /**
              * This is a machine-readable number that describes
              * the overall status of the request.
@@ -53,6 +55,18 @@ namespace Http {
              * This is the body of the request, if there is a body.
              */
             std::string body;
+
+            // Methods
+
+            /**
+             * This method generates the data to transmit to the client
+             * to return this response to the client.
+             *
+             * @return
+             *     The data to transmit to the client to return
+             *     this response to the client is returned.
+             */
+            std::string Generate() const;
         };
 
         // Lifecycle management

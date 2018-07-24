@@ -7,6 +7,8 @@
  */
 
 #include <Http/Client.hpp>
+#include <string>
+#include <sstream>
 
 namespace {
 
@@ -112,6 +114,14 @@ namespace {
 }
 
 namespace Http {
+
+    std::string Client::Response::Generate() const {
+        std::ostringstream builder;
+        builder << "HTTP/1.1 " << statusCode << ' ' << reasonPhrase << "\r\n";
+        builder << headers.GenerateRawHeaders();
+        builder << body;
+        return builder.str();
+    }
 
     /**
      * This contains the private properties of a Client instance.
