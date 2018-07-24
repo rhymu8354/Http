@@ -713,10 +713,13 @@ namespace Http {
         const std::vector< std::string >& resourceSubspacePath,
         ResourceDelegate resourceDelegate
     ) -> UnregistrationDelegate {
-        std::shared_ptr< ResourceSpace > space = nullptr;
+        std::shared_ptr< ResourceSpace > space = impl_->resources;
+        if (space == nullptr) {
+            space = impl_->resources = std::make_shared< ResourceSpace >();
+        }
         for (const auto& pathSegment: resourceSubspacePath) {
-            if (space == nullptr) {
-                space = impl_->resources = std::make_shared< ResourceSpace >();
+            if (space->handler != nullptr) {
+                return nullptr;
             }
             std::shared_ptr< ResourceSpace > subspace;
             auto subspacesEntry = space->subspaces.find(pathSegment);
@@ -729,7 +732,10 @@ namespace Http {
             }
             space = subspace;
         }
-        if (space->handler == nullptr) {
+        if (
+            (space->handler == nullptr)
+            && space->subspaces.empty()
+        ) {
             space->handler = resourceDelegate;
             return [this, space]{
                 auto currentSpace = space;

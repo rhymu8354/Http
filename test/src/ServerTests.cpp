@@ -945,7 +945,7 @@ TEST_F(ServerTests, HostNotMatchingServerUri) {
     }
 }
 
-TEST_F(ServerTests, RegisterResourceDelegate) {
+TEST_F(ServerTests, RegisterResourceDelegateSubspace) {
     auto transport = std::make_shared< MockTransport >();
     (void)server.Mobilize(transport, 1234);
     auto connection = std::make_shared< MockConnection >();
@@ -1028,4 +1028,151 @@ TEST_F(ServerTests, RegisterResourceDelegate) {
     );
     EXPECT_EQ(404, response->statusCode);
     connection->dataReceived.clear();
+}
+
+
+TEST_F(ServerTests, RegisterResourceDelegateServerWide) {
+    auto transport = std::make_shared< MockTransport >();
+    (void)server.Mobilize(transport, 1234);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Query the server before registering the resource delegate,
+    // and expect the canned 404 response since nothing is registered
+    // to handle the request yet.
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(404, response->statusCode);
+    connection->dataReceived.clear();
+
+    // Register a delegate to handle the source, and then query the server
+    // a second time.  Expect the resource request to be routed to the delegate
+    // and handled correctly this time.
+    std::vector< Uri::Uri > requestsReceived;
+    const auto resourceDelegate = [&requestsReceived](
+        std::shared_ptr< Http::Server::Request > request
+    ){
+        const auto response = std::make_shared< Http::Client::Response >();
+        response->statusCode = 200;
+        response->reasonPhrase = "OK";
+        requestsReceived.push_back(request->target);
+        return response;
+    };
+    const auto unregistrationDelegate = server.RegisterResource({ }, resourceDelegate);
+    ASSERT_TRUE(requestsReceived.empty());
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(200, response->statusCode);
+    ASSERT_EQ(1, requestsReceived.size());
+    ASSERT_EQ(
+        (std::vector< std::string >{ "foo", "bar" }),
+        requestsReceived[0].GetPath()
+    );
+    connection->dataReceived.clear();
+
+    // Unregister the resource delegate and then query the server
+    // a third time.  Since the resource is no longer registered,
+    // we should get the canned 404 response back again.
+    unregistrationDelegate();
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(404, response->statusCode);
+    connection->dataReceived.clear();
+}
+
+TEST_F(ServerTests, DontAllowDoubleRegistration) {
+    auto transport = std::make_shared< MockTransport >();
+    (void)server.Mobilize(transport, 1234);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Register /foo/bar delegate.
+    const auto foobar = [](
+        std::shared_ptr< Http::Server::Request > request
+    ){
+        return std::make_shared< Http::Client::Response >();
+    };
+    const auto unregisterFoobar = server.RegisterResource({ "foo", "bar" }, foobar);
+
+    // Attempt to register another /foo/bar delegate.
+    // This should not be allowed because /foo/bar already has a handler.
+    const auto imposter = [](
+        std::shared_ptr< Http::Server::Request > request
+    ){
+        return std::make_shared< Http::Client::Response >();
+    };
+    const auto unregisterImpostor = server.RegisterResource({ "foo", "bar" }, imposter);
+    ASSERT_TRUE(unregisterImpostor == nullptr);
+}
+
+TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
+    auto transport = std::make_shared< MockTransport >();
+    (void)server.Mobilize(transport, 1234);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Register /foo/bar delegate.
+    const auto foobar = [](
+        std::shared_ptr< Http::Server::Request > request
+    ){
+        return std::make_shared< Http::Client::Response >();
+    };
+    auto unregisterFoobar = server.RegisterResource({ "foo", "bar" }, foobar);
+    ASSERT_FALSE(unregisterFoobar == nullptr);
+
+    // Attempt to register /foo delegate.
+    // This should not be allowed because it would overlap the /foo/bar delegate.
+    const auto foo = [](
+        std::shared_ptr< Http::Server::Request > request
+    ){
+        return std::make_shared< Http::Client::Response >();
+    };
+    auto unregisterFoo = server.RegisterResource({ "foo" }, foo);
+    ASSERT_TRUE(unregisterFoo == nullptr);
+
+    // Unregister /foo/bar and register /foo.
+    unregisterFoobar();
+    unregisterFoo = server.RegisterResource({ "foo" }, foo);
+    ASSERT_FALSE(unregisterFoo == nullptr);
+
+    // Attempt to register /foo/bar again.
+    // This should not be allowed because it would overlap the /foo delegate.
+    unregisterFoobar = server.RegisterResource({ "foo", "bar" }, foobar);
+    ASSERT_TRUE(unregisterFoobar == nullptr);
 }
