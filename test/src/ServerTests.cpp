@@ -102,6 +102,22 @@ namespace {
             );
         }
 
+        /**
+         * This method waits for the server to break the conneciton.
+         *
+         * @return
+         *     An indication of whether or not the server broke
+         *     the connection is returned.
+         */
+        bool AwaitBroken() {
+            std::unique_lock< decltype(mutex) > lock(mutex);
+            return waitCondition.wait_for(
+                lock,
+                std::chrono::milliseconds(100),
+                [this]{ return broken; }
+            );
+        }
+
         // Http::Connection
 
         virtual std::string GetPeerId() override {
@@ -127,7 +143,9 @@ namespace {
         }
 
         virtual void Break(bool clean) override {
+            std::lock_guard< decltype(mutex) > lock(mutex);
             broken = true;
+            waitCondition.notify_all();
         }
     };
 
@@ -1416,7 +1434,7 @@ TEST_F(ServerTests, ClientSentRequestWithTooLargePayloadNotOverflowingContentLen
     EXPECT_TRUE(connection->broken);
 }
 
-TEST_F(ServerTests, RequestInactivityTimeout) {
+TEST_F(ServerTests, InactivityTimeout) {
     const auto transport = std::make_shared< MockTransport >();
     const auto timeKeeper = std::make_shared< MockTimeKeeper >();
     Http::Server::MobilizationDependencies deps;
@@ -1457,8 +1475,7 @@ TEST_F(ServerTests, RequestInactivityTimeout) {
     EXPECT_EQ("Request Timeout", response->reasonPhrase);
 }
 
-
-TEST_F(ServerTests, RequestRequestTimeout) {
+TEST_F(ServerTests, RequestTimeout) {
     const auto transport = std::make_shared< MockTransport >();
     const auto timeKeeper = std::make_shared< MockTimeKeeper >();
     Http::Server::MobilizationDependencies deps;
@@ -1494,6 +1511,11 @@ TEST_F(ServerTests, RequestRequestTimeout) {
     );
     EXPECT_EQ(408, response->statusCode);
     EXPECT_EQ("Request Timeout", response->reasonPhrase);
+    ASSERT_TRUE(connection->AwaitBroken());
+    connection->dataReceived.clear();
+    timeKeeper->currentTime = 1.001;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ASSERT_TRUE(connection->dataReceived.empty());
 }
 
 TEST_F(ServerTests, MobilizeWhenAlreadyMobilized) {

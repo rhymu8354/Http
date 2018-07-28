@@ -430,7 +430,8 @@ namespace Http {
             std::unique_lock< decltype(mutex) > lock(mutex);
             while (!stopTimer) {
                 const auto now = timeKeeper->GetCurrentTime();
-                for (const auto& connectionState: activeConnections) {
+                auto connections = activeConnections;
+                for (const auto& connectionState: connections) {
                     if (
                         (now - connectionState->timeLastDataReceived > inactivityTimeout)
                         || (now - connectionState->timeLastRequestStarted > requestTimeout)
@@ -699,7 +700,35 @@ namespace Http {
             if (closeRequested) {
                 connectionState->acceptingRequests = false;
                 connectionState->connection->Break(true);
+                OnConnectionBroken(
+                    connectionState,
+                    "closed by server"
+                );
             }
+        }
+
+        /**
+         * This method is called when a connection is broken,
+         * either on the server end or the client end.
+         *
+         * @param[in] connectionState
+         *     This is the state of the connection which is broken.
+         *
+         * @param[in] reason
+         *     This describes how the connection was broken.
+         */
+        void OnConnectionBroken(
+            std::shared_ptr< ConnectionState > connectionState,
+            const std::string& reason
+        ) {
+            diagnosticsSender.SendDiagnosticInformationFormatted(
+                2, "Connection to %s %s",
+                connectionState->connection->GetPeerId().c_str(),
+                reason.c_str()
+            );
+            (void)brokenConnections.insert(connectionState);
+            reaperWakeCondition.notify_all();
+            (void)activeConnections.erase(connectionState);
         }
 
         /**
@@ -845,13 +874,10 @@ namespace Http {
                     if (connectionState == nullptr) {
                         return;
                     }
-                    diagnosticsSender.SendDiagnosticInformationFormatted(
-                        2, "Connection to %s broken by peer",
-                        connectionState->connection->GetPeerId().c_str()
+                    OnConnectionBroken(
+                        connectionState,
+                        "broken by peer"
                     );
-                    (void)brokenConnections.insert(connectionState);
-                    reaperWakeCondition.notify_all();
-                    (void)activeConnections.erase(connectionState);
                 }
             );
         }
