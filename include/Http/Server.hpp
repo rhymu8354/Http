@@ -37,6 +37,26 @@ namespace Http {
     class Server
         : public IServer
     {
+        // Types
+    public:
+        /**
+         * This structure holds all of the configuration items
+         * and dependency objects needed by the server when it's
+         * mobilized.
+         */
+        struct MobilizationDependencies {
+            /**
+             * This is the transport layer implementation to use.
+             */
+            std::shared_ptr< ServerTransport > transport;
+
+            /**
+             * This is the public port number to which clients may connect
+             * to establish connections with this server.
+             */
+            uint16_t port;
+        };
+
         // Lifecycle management
     public:
         ~Server();
@@ -56,8 +76,9 @@ namespace Http {
          * This method will cause the server to bind to the given transport
          * layer and start accepting and processing connections from clients.
          *
-         * @param[in] transport
-         *     This is the transport layer implementation to use.
+         * @param[in] deps
+         *     These are all of the configuration items and dependency objects
+         *     needed by the server when it's mobilized.
          *
          * @param[in] port
          *     This is the public port number to which clients may connect
@@ -67,10 +88,7 @@ namespace Http {
          *     An indication of whether or not the method was successful
          *     is returned.
          */
-        bool Mobilize(
-            std::shared_ptr< ServerTransport > transport,
-            uint16_t port
-        );
+        bool Mobilize(const MobilizationDependencies& deps);
 
         /**
          * This method stops any accepting or processing of client connections,
