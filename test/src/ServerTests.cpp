@@ -88,7 +88,7 @@ namespace {
          *     timeout period has elapsed is returned.
          */
         bool AwaitResponse() {
-            return true;
+            return false;
         }
 
         // Http::Connection
@@ -164,6 +164,25 @@ namespace {
 
         virtual void ReleaseNetwork() override {
             bound = false;
+        }
+    };
+
+    /**
+     * This is a fake time-keeper which is used to test the server.
+     */
+    struct MockTimeKeeper
+        : public Http::TimeKeeper
+    {
+        // Properties
+
+        double currentTime = 0.0;
+
+        // Methods
+
+        // Http::TimeKeeper
+
+        virtual double GetCurrentTime() override {
+            return currentTime = 0.0;
         }
     };
 
@@ -1358,32 +1377,34 @@ TEST_F(ServerTests, ClientSentRequestWithTooLargePayloadNotOverflowingContentLen
     EXPECT_TRUE(connection->broken);
 }
 
-//TEST_F(ServerTests, RequestTimedOut) {
-//    auto transport = std::make_shared< MockTransport >();
-//    Http::Server::MobilizationDependencies deps;
-//    deps.transport = transport;
-//    deps.port = 1234;
-//    (void)server.Mobilize(deps);
-//    auto connection = std::make_shared< MockConnection >();
-//    transport->connectionDelegate(connection);
-//    const std::string request = (
-//        "GET /foo/bar HTTP/1.1\r\n"
-//        "Host: www.example.com\r\n"
-//    );
-//    connection->dataReceivedDelegate(
-//        std::vector< uint8_t >(
-//            request.begin(),
-//            request.end()
-//        )
-//    );
-//    ASSERT_TRUE(connection->AwaitResponse());
-//    Http::Client client;
-//    const auto response = client.ParseResponse(
-//        std::string(
-//            connection->dataReceived.begin(),
-//            connection->dataReceived.end()
-//        )
-//    );
-//    EXPECT_EQ(408, response->statusCode);
-//    EXPECT_EQ("Request Timeout", response->reasonPhrase);
-//}
+TEST_F(ServerTests, RequestInactivityTimeout) {
+    const auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    deps.port = 1234;
+    (void)server.Mobilize(deps);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    ASSERT_TRUE(connection->AwaitResponse());
+    Http::Client client;
+    const auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(408, response->statusCode);
+    EXPECT_EQ("Request Timeout", response->reasonPhrase);
+}
