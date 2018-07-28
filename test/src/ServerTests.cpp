@@ -1526,3 +1526,45 @@ TEST_F(ServerTests, MobilizeWhenAlreadyMobilized) {
     ASSERT_TRUE(server.Mobilize(deps));
     ASSERT_FALSE(server.Mobilize(deps));
 }
+
+TEST_F(ServerTests, IdleTimeout) {
+    const auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("InactivityTimeout", "10.0");
+    server.SetConfigurationItem("RequestTimeout", "1.0");
+    server.SetConfigurationItem("IdleTimeout", "100.0");
+    (void)server.Mobilize(deps);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    timeKeeper->currentTime = 1.001;
+    ASSERT_FALSE(connection->AwaitBroken());
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    ASSERT_TRUE(connection->AwaitResponse());
+    connection->dataReceived.clear();
+    timeKeeper->currentTime = 2.002;
+    ASSERT_FALSE(connection->AwaitBroken());
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    ASSERT_TRUE(connection->AwaitResponse());
+    timeKeeper->currentTime = 30.0;
+    ASSERT_FALSE(connection->AwaitBroken());
+    timeKeeper->currentTime = 103.0;
+    ASSERT_TRUE(connection->AwaitBroken());
+}

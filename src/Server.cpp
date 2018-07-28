@@ -60,6 +60,14 @@ namespace {
     constexpr double DEFAULT_REQUEST_TIMEOUT_SECONDS = 60.0;
 
     /**
+     * This is the default maximum number of seconds to allow to elapse
+     * beteen the end of a request, or the beginning of a connection,
+     * and receiving the first byte of a new client request,
+     * before timing out.
+     */
+    constexpr double DEFAULT_IDLE_TIMEOUT_SECONDS = 60.0;
+
+    /**
      * This is the number of milliseconds to wait between rounds of polling
      * connections to check for timeouts.
      */
@@ -233,6 +241,12 @@ namespace {
         double timeLastRequestStarted = 0.0;
 
         /**
+         * This flag indicates whether or not the client is currently
+         * issuing a request to the server.
+         */
+        bool requestInProgress = false;
+
+        /**
          * This buffer is used to reassemble fragmented HTTP requests
          * received from the client.
          */
@@ -283,6 +297,14 @@ namespace Http {
          * to establish connections with this server.
          */
         uint16_t port = DEFAULT_PORT_NUMBER;
+
+        /**
+         * This is the default maximum number of seconds to allow to elapse
+         * beteen the end of a request, or the beginning of a connection,
+         * and receiving the first byte of a new client request,
+         * before timing out.
+         */
+        double idleTimeout = DEFAULT_IDLE_TIMEOUT_SECONDS;
 
         /**
          * This is the maximum number of seconds to allow to elapse
@@ -432,10 +454,18 @@ namespace Http {
                 const auto now = timeKeeper->GetCurrentTime();
                 auto connections = activeConnections;
                 for (const auto& connectionState: connections) {
-                    if (
-                        (now - connectionState->timeLastDataReceived > inactivityTimeout)
-                        || (now - connectionState->timeLastRequestStarted > requestTimeout)
-                    ) {
+                    bool timeout = false;
+                    if (connectionState->requestInProgress) {
+                        if (
+                            (now - connectionState->timeLastDataReceived > inactivityTimeout)
+                            || (now - connectionState->timeLastRequestStarted > requestTimeout)
+                        ) {
+                            timeout = true;
+                        }
+                    } else if (now - connectionState->timeLastDataReceived > idleTimeout) {
+                        timeout = true;
+                    }
+                    if (timeout) {
                         const auto response = std::make_shared< Response >();
                         response->statusCode = 408;
                         response->reasonPhrase = "Request Timeout";
@@ -649,6 +679,7 @@ namespace Http {
         ) {
             connectionState->nextRequest = std::make_shared< Request >();
             const auto now = timeKeeper->GetCurrentTime();
+            connectionState->requestInProgress = !connectionState->reassemblyBuffer.empty();
             connectionState->timeLastDataReceived = now;
             connectionState->timeLastRequestStarted = now;
         }
@@ -748,6 +779,7 @@ namespace Http {
                 return;
             }
             const auto now = timeKeeper->GetCurrentTime();
+            connectionState->requestInProgress = true;
             connectionState->timeLastDataReceived = now;
             connectionState->reassemblyBuffer += std::string(data.begin(), data.end());
             for (;;) {
