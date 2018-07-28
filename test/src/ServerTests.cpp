@@ -7,6 +7,7 @@
  * © 2018 by Richard Walters
  */
 
+#include <condition_variable>
 #include <gtest/gtest.h>
 #include <Http/Client.hpp>
 #include <Http/Server.hpp>
@@ -32,10 +33,9 @@ namespace {
         bool callingDelegate = false;
 
         /**
-         * This should be held when changing or checking
-         * the callingDelegate flag.
+         * This is used to synchronize access to the wait condition.
          */
-        std::recursive_mutex callingDelegateMutex;
+        std::mutex mutex;
 
         /**
          * This is the delegate to call whenever data is recevied
@@ -59,9 +59,15 @@ namespace {
          */
         bool broken = false;
 
+        /**
+         * This is used to wait for, or signal, a condition
+         * upon which that the tests might be waiting.
+         */
+        std::condition_variable waitCondition;
+
         // Lifecycle management
         ~MockConnection() {
-            std::lock_guard< decltype(callingDelegateMutex) > lock(callingDelegateMutex);
+            std::lock_guard< decltype(mutex) > lock(mutex);
             if (callingDelegate) {
                 *((int*)0) = 42; // force a crash (use in a death test)
             }
@@ -88,7 +94,12 @@ namespace {
          *     timeout period has elapsed is returned.
          */
         bool AwaitResponse() {
-            return false;
+            std::unique_lock< decltype(mutex) > lock(mutex);
+            return waitCondition.wait_for(
+                lock,
+                std::chrono::milliseconds(100),
+                [this]{ return !dataReceived.empty(); }
+            );
         }
 
         // Http::Connection
@@ -106,11 +117,13 @@ namespace {
         }
 
         virtual void SendData(std::vector< uint8_t > data) override {
+            std::lock_guard< decltype(mutex) > lock(mutex);
             (void)dataReceived.insert(
                 dataReceived.end(),
                 data.begin(),
                 data.end()
             );
+            waitCondition.notify_all();
         }
 
         virtual void Break(bool clean) override {
@@ -182,7 +195,7 @@ namespace {
         // Http::TimeKeeper
 
         virtual double GetCurrentTime() override {
-            return currentTime = 0.0;
+            return currentTime;
         }
     };
 
@@ -506,7 +519,8 @@ TEST_F(ServerTests, Mobilize) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     ASSERT_TRUE(server.Mobilize(deps));
     ASSERT_TRUE(transport->bound);
     ASSERT_EQ(1234, transport->port);
@@ -517,7 +531,8 @@ TEST_F(ServerTests, Demobilize) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     server.Demobilize();
     ASSERT_FALSE(transport->bound);
@@ -529,7 +544,8 @@ TEST_F(ServerTests, ReleaseNetworkUponDestruction) {
         Http::Server temporaryServer;
         Http::Server::MobilizationDependencies deps;
         deps.transport = transport;
-        deps.port = 1234;
+        deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+        server.SetConfigurationItem("Port", "1234");
         (void)temporaryServer.Mobilize(deps);
     }
     ASSERT_FALSE(transport->bound);
@@ -539,10 +555,12 @@ TEST_F(ServerTests, ClientRequestInOnePiece) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     ASSERT_EQ(
         (std::vector< std::string >{
+            "Http::Server[0]: Port number changed from 80 to 1234",
             "Http::Server[3]: Now listening on port 1234",
         }),
         diagnosticMessages
@@ -574,8 +592,8 @@ TEST_F(ServerTests, ClientRequestInOnePiece) {
     );
     const std::string expectedResponse = (
         "HTTP/1.1 404 Not Found\r\n"
-        "Content-Length: 13\r\n"
         "Content-Type: text/plain\r\n"
+        "Content-Length: 13\r\n"
         "\r\n"
         "FeelsBadMan\r\n"
     );
@@ -600,7 +618,8 @@ TEST_F(ServerTests, ClientRequestInTwoPieces) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -628,8 +647,8 @@ TEST_F(ServerTests, ClientRequestInTwoPieces) {
     );
     const std::string expectedResponse = (
         "HTTP/1.1 404 Not Found\r\n"
-        "Content-Length: 13\r\n"
         "Content-Type: text/plain\r\n"
+        "Content-Length: 13\r\n"
         "\r\n"
         "FeelsBadMan\r\n"
     );
@@ -646,7 +665,8 @@ TEST_F(ServerTests, TwoClientRequestsInOnePiece) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -672,13 +692,13 @@ TEST_F(ServerTests, TwoClientRequestsInOnePiece) {
     );
     const std::string expectedResponses = (
         "HTTP/1.1 404 Not Found\r\n"
-        "Content-Length: 13\r\n"
         "Content-Type: text/plain\r\n"
+        "Content-Length: 13\r\n"
         "\r\n"
         "FeelsBadMan\r\n"
         "HTTP/1.1 404 Not Found\r\n"
-        "Content-Length: 13\r\n"
         "Content-Type: text/plain\r\n"
+        "Content-Length: 13\r\n"
         "\r\n"
         "FeelsBadMan\r\n"
     );
@@ -695,7 +715,8 @@ TEST_F(ServerTests, ClientInvalidRequestRecoverable) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -721,13 +742,13 @@ TEST_F(ServerTests, ClientInvalidRequestRecoverable) {
     );
     const std::string expectedResponses = (
         "HTTP/1.1 400 Bad Request\r\n"
-        "Content-Length: 13\r\n"
         "Content-Type: text/plain\r\n"
+        "Content-Length: 13\r\n"
         "\r\n"
         "FeelsBadMan\r\n"
         "HTTP/1.1 404 Not Found\r\n"
-        "Content-Length: 13\r\n"
         "Content-Type: text/plain\r\n"
+        "Content-Length: 13\r\n"
         "\r\n"
         "FeelsBadMan\r\n"
     );
@@ -745,7 +766,8 @@ TEST_F(ServerTests, ClientInvalidRequestUnrecoverable) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -767,8 +789,9 @@ TEST_F(ServerTests, ClientInvalidRequestUnrecoverable) {
     );
     const std::string expectedResponse = (
         "HTTP/1.1 413 Payload Too Large\r\n"
-        "Content-Length: 13\r\n"
         "Content-Type: text/plain\r\n"
+        "Connection: close\r\n"
+        "Content-Length: 13\r\n"
         "\r\n"
         "FeelsBadMan\r\n"
     );
@@ -786,7 +809,8 @@ TEST_F(ServerTests, ClientConnectionBroken) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -806,14 +830,15 @@ TEST_F(ServerTests, ClientShouldNotBeReleasedDuringBreakDelegateCall) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
     auto connectionRaw = connection.get();
     connection = nullptr;
     {
-        std::lock_guard< decltype(connectionRaw->callingDelegateMutex) > lock(connectionRaw->callingDelegateMutex);
+        std::lock_guard< decltype(connectionRaw->mutex) > lock(connectionRaw->mutex);
         connectionRaw->callingDelegate = true;
         connectionRaw->brokenDelegate();
         connectionRaw->callingDelegate = false;
@@ -835,7 +860,8 @@ TEST_F(ServerTests, ConnectionCloseOrNot) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     for (int i = 0; i < 2; ++i) {
         const auto tellServerToCloseAfterResponse = (i == 0);
@@ -872,7 +898,8 @@ TEST_F(ServerTests, HostMissing) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -903,7 +930,8 @@ TEST_F(ServerTests, HostNotMatchingTargetUri) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -942,7 +970,8 @@ TEST_F(ServerTests, DefaultServerUri) {
         auto transport = std::make_shared< MockTransport >();
         Http::Server::MobilizationDependencies deps;
         deps.transport = transport;
-        deps.port = 1234;
+        deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+        server.SetConfigurationItem("Port", "1234");
         (void)server.Mobilize(deps);
         auto connection = std::make_shared< MockConnection >();
         transport->connectionDelegate(connection);
@@ -988,7 +1017,8 @@ TEST_F(ServerTests, HostNotMatchingServerUri) {
         auto transport = std::make_shared< MockTransport >();
         Http::Server::MobilizationDependencies deps;
         deps.transport = transport;
-        deps.port = 1234;
+        deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+        server.SetConfigurationItem("Port", "1234");
         (void)server.Mobilize(deps);
         auto connection = std::make_shared< MockConnection >();
         transport->connectionDelegate(connection);
@@ -1028,7 +1058,8 @@ TEST_F(ServerTests, RegisterResourceDelegateSubspace) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -1116,7 +1147,8 @@ TEST_F(ServerTests, RegisterResourceDelegateServerWide) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -1204,7 +1236,8 @@ TEST_F(ServerTests, DontAllowDoubleRegistration) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -1232,7 +1265,8 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -1271,7 +1305,8 @@ TEST_F(ServerTests, ContentLengthSetByServer) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -1313,7 +1348,8 @@ TEST_F(ServerTests, ClientSentRequestWithTooLargePayloadOverflowingContentLength
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -1348,7 +1384,8 @@ TEST_F(ServerTests, ClientSentRequestWithTooLargePayloadNotOverflowingContentLen
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
-    deps.port = 1234;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -1385,7 +1422,8 @@ TEST_F(ServerTests, RequestInactivityTimeout) {
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
     deps.timeKeeper = timeKeeper;
-    deps.port = 1234;
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("InactivityTimeout", "1.0");
     (void)server.Mobilize(deps);
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
@@ -1399,6 +1437,53 @@ TEST_F(ServerTests, RequestInactivityTimeout) {
             request.end()
         )
     );
+    timeKeeper->currentTime = 0.999;
+    ASSERT_FALSE(connection->AwaitResponse());
+    connection->dataReceivedDelegate({'x'});
+    timeKeeper->currentTime = 1.001;
+    ASSERT_FALSE(connection->AwaitResponse());
+    timeKeeper->currentTime = 1.998;
+    ASSERT_FALSE(connection->AwaitResponse());
+    timeKeeper->currentTime = 2.000;
+    ASSERT_TRUE(connection->AwaitResponse());
+    Http::Client client;
+    const auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(408, response->statusCode);
+    EXPECT_EQ("Request Timeout", response->reasonPhrase);
+}
+
+
+TEST_F(ServerTests, RequestRequestTimeout) {
+    const auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("InactivityTimeout", "10.0");
+    server.SetConfigurationItem("RequestTimeout", "1.0");
+    (void)server.Mobilize(deps);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    timeKeeper->currentTime = 0.999;
+    ASSERT_FALSE(connection->AwaitResponse());
+    connection->dataReceivedDelegate({'x'});
+    timeKeeper->currentTime = 1.001;
     ASSERT_TRUE(connection->AwaitResponse());
     Http::Client client;
     const auto response = client.ParseResponse(
@@ -1415,7 +1500,7 @@ TEST_F(ServerTests, MobilizeWhenAlreadyMobilized) {
     Http::Server::MobilizationDependencies deps;
     deps.transport = std::make_shared< MockTransport >();
     deps.timeKeeper = std::make_shared< MockTimeKeeper >();
-    deps.port = 1234;
+    server.SetConfigurationItem("Port", "1234");
     ASSERT_TRUE(server.Mobilize(deps));
     ASSERT_FALSE(server.Mobilize(deps));
 }

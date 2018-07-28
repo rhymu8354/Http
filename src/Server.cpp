@@ -40,6 +40,32 @@ namespace {
     constexpr size_t DEFAULT_HEADER_LINE_LIMIT = 1000;
 
     /**
+     * This is the default public port number to which clients may connect
+     * to establish connections with this server.
+     */
+    constexpr uint16_t DEFAULT_PORT_NUMBER = 80;
+
+    /**
+     * This is the default maximum number of seconds to allow to elapse
+     * beteen receiving one byte of a client request and
+     * receiving the next byte, before timing out.
+     */
+    constexpr double DEFAULT_INACTIVITY_TIMEOUT_SECONDS = 1.0;
+
+    /**
+     * This is the default maximum number of seconds to allow to elapse
+     * beteen receiving the first byte of a client request and
+     * receiving the last byte of the request, before timing out.
+     */
+    constexpr double DEFAULT_REQUEST_TIMEOUT_SECONDS = 60.0;
+
+    /**
+     * This is the number of milliseconds to wait between rounds of polling
+     * connections to check for timeouts.
+     */
+    constexpr unsigned int TIMER_POLLING_PERIOD_MILLISECONDS = 50;
+
+    /**
      * This is used to record what resources are currently supported
      * by the server, and through which handler delegates.
      */
@@ -195,6 +221,18 @@ namespace {
         std::shared_ptr< Http::Connection > connection;
 
         /**
+         * This is the time reported by the time keeper when
+         * data was last received from the client.
+         */
+        double timeLastDataReceived = 0.0;
+
+        /**
+         * This is the time reported by the time keeper when
+         * the current request was started.
+         */
+        double timeLastRequestStarted = 0.0;
+
+        /**
          * This buffer is used to reassemble fragmented HTTP requests
          * received from the client.
          */
@@ -205,6 +243,12 @@ namespace {
          * being received and parsed.
          */
         std::shared_ptr< Http::Request > nextRequest = std::make_shared< Http::Request >();
+
+        /**
+         * This flag indicates whether or not the server is still
+         * accepting requests from the client.
+         */
+        bool acceptingRequests = true;
     };
 
 }
@@ -235,6 +279,26 @@ namespace Http {
         size_t headerLineLimit = DEFAULT_HEADER_LINE_LIMIT;
 
         /**
+         * This is the public port number to which clients may connect
+         * to establish connections with this server.
+         */
+        uint16_t port = DEFAULT_PORT_NUMBER;
+
+        /**
+         * This is the maximum number of seconds to allow to elapse
+         * beteen receiving one byte of a client request and
+         * receiving the next byte, before timing out.
+         */
+        double inactivityTimeout = DEFAULT_INACTIVITY_TIMEOUT_SECONDS;
+
+        /**
+         * This is the maximum number of seconds to allow to elapse
+         * beteen receiving the first byte of a client request and
+         * receiving the last byte of the request, before timing out.
+         */
+        double requestTimeout = DEFAULT_REQUEST_TIMEOUT_SECONDS;
+
+        /**
          * This flag indicates whether or not the server is running.
          */
         bool mobilized = false;
@@ -243,6 +307,11 @@ namespace Http {
          * This is the transport layer currently bound.
          */
         std::shared_ptr< ServerTransport > transport;
+
+        /**
+         * This is the object used to track time in the server.
+         */
+        std::shared_ptr< TimeKeeper > timeKeeper;
 
         /**
          * These are the currently active client connections.
@@ -291,6 +360,29 @@ namespace Http {
          */
         std::condition_variable reaperWakeCondition;
 
+        /**
+         * This is a worker thread whose sole job is to monitor
+         * open connections for two different situations:
+         * 1.  Too much time elapsed between receiving two sequential
+         *     bytes of a request.
+         * 2.  Too much time elapsed between the start of a request
+         *     and the receipt of the last byte of the request.
+         * If either situation occurs, a "408 Request timeout" response
+         * is given to the client, and then the connection is closed.
+         */
+        std::thread timer;
+
+        /**
+         * This flag indicates whether or not the timer thread should stop.
+         */
+        bool stopTimer = false;
+
+        /**
+         * This is used by the timer thread to wait on any
+         * condition that it should cause it to wake up.
+         */
+        std::condition_variable timerWakeCondition;
+
         // Methods
 
         /**
@@ -324,6 +416,36 @@ namespace Http {
                             || !brokenConnections.empty()
                         );
                     }
+                );
+            }
+        }
+
+        /**
+         * This method is the body of the timer thread.
+         * Until it's told to stop, it monitors connections
+         * and closes them with a "408 Request Timeout"
+         * if any timeouts occur.
+         */
+        void Timer() {
+            std::unique_lock< decltype(mutex) > lock(mutex);
+            while (!stopTimer) {
+                const auto now = timeKeeper->GetCurrentTime();
+                for (const auto& connectionState: activeConnections) {
+                    if (
+                        (now - connectionState->timeLastDataReceived > inactivityTimeout)
+                        || (now - connectionState->timeLastRequestStarted > requestTimeout)
+                    ) {
+                        const auto response = std::make_shared< Response >();
+                        response->statusCode = 408;
+                        response->reasonPhrase = "Request Timeout";
+                        response->headers.AddHeader("Connection", "close");
+                        IssueResponse(connectionState, response);
+                    }
+                }
+                (void)timerWakeCondition.wait_for(
+                    lock,
+                    std::chrono::milliseconds(TIMER_POLLING_PERIOD_MILLISECONDS),
+                    [this]{ return stopTimer; }
                 );
             }
         }
@@ -484,8 +606,9 @@ namespace Http {
          * This method appends the given data to the end of the reassembly
          * buffer, and then attempts to parse a request out of it.
          *
-         * @param[in] server
-         *     This is the server that owns this connection.
+         * @param[in] connectionState
+         *     This is the state of the connection for which to attempt
+         *     to assemble the next request.
          *
          * @return
          *     The request parsed from the reassembly buffer is returned.
@@ -509,8 +632,74 @@ namespace Http {
                 return nullptr;
             }
             const auto request = connectionState->nextRequest;
-            connectionState->nextRequest = std::make_shared< Request >();
+            StartNextRequest(connectionState);
             return request;
+        }
+
+        /**
+         * This method prepares the connection for the next client request.
+         *
+         * @param[in] connectionState
+         *     This is the state of the connection for which to prepare
+         *     the next client request.
+         */
+        void StartNextRequest(
+            std::shared_ptr< ConnectionState > connectionState
+        ) {
+            connectionState->nextRequest = std::make_shared< Request >();
+            const auto now = timeKeeper->GetCurrentTime();
+            connectionState->timeLastDataReceived = now;
+            connectionState->timeLastRequestStarted = now;
+        }
+
+        /**
+         * This method sends the given response back to the given client.
+         *
+         * @param[in] connectionState
+         *     This is the state of the connection for which to issue
+         *     the given response.
+         *
+         * @param[in] response
+         *     This is the response to send back to the client.
+         */
+        void IssueResponse(
+            std::shared_ptr< ConnectionState > connectionState,
+            std::shared_ptr< Response > response
+        ) {
+            if (
+                !response->headers.HasHeader("Transfer-Encoding")
+                && !response->body.empty()
+                && !response->headers.HasHeader("Content-Length")
+            ) {
+                response->headers.AddHeader(
+                    "Content-Length",
+                    SystemAbstractions::sprintf("%zu", response->body.length())
+                );
+            }
+            const auto responseText = response->Generate();
+            connectionState->connection->SendData(
+                std::vector< uint8_t >(
+                    responseText.begin(),
+                    responseText.end()
+                )
+            );
+            diagnosticsSender.SendDiagnosticInformationFormatted(
+                1, "Sent %u '%s' response back to %s",
+                response->statusCode,
+                response->reasonPhrase.c_str(),
+                connectionState->connection->GetPeerId().c_str()
+            );
+            bool closeRequested = false;
+            for (const auto& connectionToken: response->headers.GetHeaderMultiValue("Connection")) {
+                if (connectionToken == "close") {
+                    closeRequested = true;
+                    break;
+                }
+            }
+            if (closeRequested) {
+                connectionState->acceptingRequests = false;
+                connectionState->connection->Break(true);
+            }
         }
 
         /**
@@ -526,15 +715,18 @@ namespace Http {
             std::shared_ptr< ConnectionState > connectionState,
             std::vector< uint8_t > data
         ) {
+            if (!connectionState->acceptingRequests) {
+                return;
+            }
+            const auto now = timeKeeper->GetCurrentTime();
+            connectionState->timeLastDataReceived = now;
             connectionState->reassemblyBuffer += std::string(data.begin(), data.end());
             for (;;) {
                 const auto request = TryRequestAssembly(connectionState);
                 if (request == nullptr) {
                     break;
                 }
-                std::string responseText;
-                unsigned int statusCode;
-                std::string reasonPhrase;
+                std::shared_ptr< Response > response;
                 if (
                     (request->state == Request::State::Complete)
                     && request->valid
@@ -574,75 +766,47 @@ namespace Http {
                         && (resource->handler != nullptr)
                     ) {
                         request->target.SetPath({ resourcePath.begin(), resourcePath.end() });
-                        const auto response = resource->handler(request);
-                        if (
-                            !response->headers.HasHeader("Transfer-Encoding")
-                            && !response->body.empty()
-                            && !response->headers.HasHeader("Content-Length")
-                        ) {
-                            response->headers.AddHeader(
-                                "Content-Length",
-                                SystemAbstractions::sprintf("%zu", response->body.length())
-                            );
-                        }
-                        responseText = response->Generate();
-                        statusCode = response->statusCode;
-                        reasonPhrase = response->reasonPhrase;
+                        response = resource->handler(request);
                     } else {
-                        const std::string cannedResponse = (
-                            "HTTP/1.1 404 Not Found\r\n"
-                            "Content-Length: 13\r\n"
-                            "Content-Type: text/plain\r\n"
-                            "\r\n"
-                            "FeelsBadMan\r\n"
-                        );
-                        responseText = cannedResponse;
-                        statusCode = 404;
-                        reasonPhrase = "Not Found";
+                        response = std::make_shared< Response >();
+                        response->statusCode = 404;
+                        response->reasonPhrase = "Not Found";
+                        response->headers.SetHeader("Content-Type", "text/plain");
+                        response->body = "FeelsBadMan\r\n";
                     }
-                } else {
-                    responseText = SystemAbstractions::sprintf(
-                        "HTTP/1.1 %u %s\r\n"
-                        "Content-Length: 13\r\n"
-                        "Content-Type: text/plain\r\n"
-                        "\r\n"
-                        "FeelsBadMan\r\n",
-                        request->responseStatusCode,
-                        request->responseReasonPhrase.c_str()
-                    );
-                    statusCode = request->responseStatusCode;
-                    reasonPhrase = request->responseReasonPhrase;
-                }
-                connectionState->connection->SendData(
-                    std::vector< uint8_t >(
-                        responseText.begin(),
-                        responseText.end()
-                    )
-                );
-                diagnosticsSender.SendDiagnosticInformationFormatted(
-                    1, "Sent %u '%s' response back to %s",
-                    statusCode,
-                    reasonPhrase.c_str(),
-                    connectionState->connection->GetPeerId().c_str()
-                );
-                if (request->state == Request::State::Complete) {
-                    const auto connectionTokens = request->headers.GetHeaderMultiValue("Connection");
+                    const auto requestConnectionTokens = request->headers.GetHeaderMultiValue("Connection");
                     bool closeRequested = false;
-                    for (const auto& connectionToken: connectionTokens) {
+                    for (const auto& connectionToken: requestConnectionTokens) {
                         if (connectionToken == "close") {
                             closeRequested = true;
                             break;
                         }
                     }
                     if (closeRequested) {
-                        connectionState->connection->Break(true);
+                        auto responseConnectionTokens = response->headers.GetHeaderMultiValue("Connection");
+                        bool closeResponded = false;
+                        for (const auto& connectionToken: responseConnectionTokens) {
+                            if (connectionToken == "close") {
+                                closeResponded = true;
+                                break;
+                            }
+                        }
+                        if (!closeResponded) {
+                            responseConnectionTokens.push_back("close");
+                        }
+                        response->headers.SetHeader("Connection", responseConnectionTokens, true);
                     }
                 } else {
+                    response = std::make_shared< Response >();
+                    response->statusCode = request->responseStatusCode;
+                    response->reasonPhrase = request->responseReasonPhrase;
+                    response->headers.SetHeader("Content-Type", "text/plain");
+                    response->body = "FeelsBadMan\r\n";
                     if (request->state == Request::State::Error) {
-                        connectionState->connection->Break(true);
+                        response->headers.SetHeader("Connection", "close");
                     }
-                    break;
                 }
+                IssueResponse(connectionState, response);
             }
         }
 
@@ -660,6 +824,7 @@ namespace Http {
                 connection->GetPeerId().c_str()
             );
             const auto connectionState = std::make_shared< ConnectionState >();
+            StartNextRequest(connectionState);
             connectionState->connection = connection;
             (void)activeConnections.insert(connectionState);
             std::weak_ptr< ConnectionState > connectionStateWeak(connectionState);
@@ -717,7 +882,7 @@ namespace Http {
         impl_->transport = deps.transport;
         if (
             impl_->transport->BindNetwork(
-                deps.port,
+                impl_->port,
                 [this](std::shared_ptr< Connection > connection){
                     impl_->NewConnection(connection);
                 }
@@ -725,17 +890,28 @@ namespace Http {
         ) {
             impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
                 3, "Now listening on port %" PRIu16,
-                deps.port
+                impl_->port
             );
         } else {
             impl_->transport = nullptr;
             return false;
         }
+        impl_->timeKeeper = deps.timeKeeper;
+        impl_->stopTimer = false;
+        impl_->timer = std::thread(&Impl::Timer, impl_.get());
         impl_->mobilized = true;
         return true;
     }
 
     void Server::Demobilize() {
+        if (impl_->timer.joinable()) {
+            {
+                std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+                impl_->stopTimer = true;
+                impl_->timerWakeCondition.notify_all();
+            }
+            impl_->timer.join();
+        }
         if (impl_->transport != nullptr) {
             impl_->transport->ReleaseNetwork();
             impl_->transport = nullptr;
@@ -802,6 +978,57 @@ namespace Http {
                     newHeaderLineLimit
                 );
                 impl_->headerLineLimit = newHeaderLineLimit;
+            }
+        } else if (key == "Port") {
+            uint16_t newPort;
+            if (
+                sscanf(
+                    value.c_str(),
+                    "%" SCNu16,
+                    &newPort
+                ) == 1
+            ) {
+                impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Port number changed from %" PRIu16 " to %" PRIu16,
+                    impl_->port,
+                    newPort
+                );
+                impl_->port = newPort;
+            }
+        } else if (key == "InactivityTimeout") {
+            double newInactivityTimeout;
+            if (
+                sscanf(
+                    value.c_str(),
+                    "%lf",
+                    &newInactivityTimeout
+                ) == 1
+            ) {
+                impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Inactivity timeout changed from %lf to %lf",
+                    impl_->inactivityTimeout,
+                    newInactivityTimeout
+                );
+                impl_->inactivityTimeout = newInactivityTimeout;
+            }
+        } else if (key == "RequestTimeout") {
+            double newRequestTimeout;
+            if (
+                sscanf(
+                    value.c_str(),
+                    "%lf",
+                    &newRequestTimeout
+                ) == 1
+            ) {
+                impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Request timeout changed from %lf to %lf",
+                    impl_->requestTimeout,
+                    newRequestTimeout
+                );
+                impl_->requestTimeout = newRequestTimeout;
             }
         }
     }

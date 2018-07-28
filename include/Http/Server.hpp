@@ -55,12 +55,6 @@ namespace Http {
              * This is the object used to track time in the server.
              */
             std::shared_ptr< TimeKeeper > timeKeeper;
-
-            /**
-             * This is the public port number to which clients may connect
-             * to establish connections with this server.
-             */
-            uint16_t port;
         };
 
         // Lifecycle management
