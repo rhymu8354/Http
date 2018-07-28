@@ -7,6 +7,7 @@ set(This HttpTests)
 
 set(Sources
     src/ClientTests.cpp
+    src/RequestTests.cpp
     src/ResponseTests.cpp
     src/ServerTests.cpp
 )
