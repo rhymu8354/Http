@@ -664,6 +664,55 @@ namespace Http {
         impl_->reaper = std::thread(&Impl::Reaper, impl_.get());
     }
 
+    bool Server::Mobilize(
+        std::shared_ptr< ServerTransport > transport,
+        uint16_t port
+    ) {
+        impl_->transport = transport;
+        if (
+            impl_->transport->BindNetwork(
+                port,
+                [this](std::shared_ptr< Connection > connection){
+                    impl_->NewConnection(connection);
+                }
+            )
+        ) {
+            impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                3, "Now listening on port %" PRIu16,
+                port
+            );
+        } else {
+            impl_->transport = nullptr;
+            return false;
+        }
+        return true;
+    }
+
+    void Server::Demobilize() {
+        if (impl_->transport != nullptr) {
+            impl_->transport->ReleaseNetwork();
+            impl_->transport = nullptr;
+        }
+    }
+
+    auto Server::ParseRequest(const std::string& rawRequest) -> std::shared_ptr< Request > {
+        size_t messageEnd;
+        return ParseRequest(rawRequest, messageEnd);
+    }
+
+    auto Server::ParseRequest(
+        const std::string& rawRequest,
+        size_t& messageEnd
+    ) -> std::shared_ptr< Request > {
+        auto request = std::make_shared< Request >();
+        messageEnd = impl_->ParseRequest(request, rawRequest);
+        if (request->IsCompleteOrError()) {
+            return request;
+        } else {
+            return nullptr;
+        }
+    }
+
     SystemAbstractions::DiagnosticsSender::SubscriptionToken Server::SubscribeToDiagnostics(
         SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
         size_t minLevel
@@ -759,57 +808,8 @@ namespace Http {
         }
     }
 
-    bool Server::Mobilize(
-        std::shared_ptr< ServerTransport > transport,
-        uint16_t port
-    ) {
-        impl_->transport = transport;
-        if (
-            impl_->transport->BindNetwork(
-                port,
-                [this](std::shared_ptr< Connection > connection){
-                    impl_->NewConnection(connection);
-                }
-            )
-        ) {
-            impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                3, "Now listening on port %" PRIu16,
-                port
-            );
-        } else {
-            impl_->transport = nullptr;
-            return false;
-        }
-        return true;
-    }
-
-    void Server::Demobilize() {
-        if (impl_->transport != nullptr) {
-            impl_->transport->ReleaseNetwork();
-            impl_->transport = nullptr;
-        }
-    }
-
-    auto Server::ParseRequest(const std::string& rawRequest) -> std::shared_ptr< Request > {
-        size_t messageEnd;
-        return ParseRequest(rawRequest, messageEnd);
-    }
-
-    auto Server::ParseRequest(
-        const std::string& rawRequest,
-        size_t& messageEnd
-    ) -> std::shared_ptr< Request > {
-        auto request = std::make_shared< Request >();
-        messageEnd = impl_->ParseRequest(request, rawRequest);
-        if (request->IsCompleteOrError()) {
-            return request;
-        } else {
-            return nullptr;
-        }
-    }
-
     void PrintTo(
-        const Server::Request::State& state,
+        const IServer::Request::State& state,
         std::ostream* os
     ) {
         switch (state) {
