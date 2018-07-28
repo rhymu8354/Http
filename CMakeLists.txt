@@ -9,13 +9,15 @@ set(Headers
     include/Http/Client.hpp
     include/Http/Connection.hpp
     include/Http/IServer.hpp
+    include/Http/Request.hpp
     include/Http/Server.hpp
     include/Http/ServerTransport.hpp
 )
 
 set(Sources
-    src/Server.cpp
     src/Client.cpp
+    src/Request.cpp
+    src/Server.cpp
 )
 
 add_library(${This} STATIC ${Sources} ${Headers})

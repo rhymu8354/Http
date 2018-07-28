@@ -124,7 +124,7 @@ namespace {
      *     was successfully parsed is returned.
      */
     bool ParseRequestLine(
-        std::shared_ptr< Http::Server::Request > request,
+        std::shared_ptr< Http::Request > request,
         const std::string& requestLine
     ) {
         // Parse the method.
@@ -181,7 +181,7 @@ namespace {
          * This is the state of the next request, while it's still
          * being received and parsed.
          */
-        std::shared_ptr< Http::Server::Request > nextRequest = std::make_shared< Http::Server::Request >();
+        std::shared_ptr< Http::Request > nextRequest = std::make_shared< Http::Request >();
     };
 
 }
@@ -639,13 +639,6 @@ namespace Http {
         }
     };
 
-    bool Server::Request::IsCompleteOrError() const {
-        return (
-            (state == State::Complete)
-            || (state == State::Error)
-        );
-    }
-
     Server::~Server() {
         Demobilize();
         {
@@ -805,32 +798,6 @@ namespace Http {
             };
         } else {
             return nullptr;
-        }
-    }
-
-    void PrintTo(
-        const IServer::Request::State& state,
-        std::ostream* os
-    ) {
-        switch (state) {
-            case Server::Request::State::RequestLine: {
-                *os << "Constructing Request line";
-            } break;
-            case Server::Request::State::Headers: {
-                *os << "Constructing Headers";
-            } break;
-            case Server::Request::State::Body: {
-                *os << "Constructing Body";
-            } break;
-            case Server::Request::State::Complete: {
-                *os << "COMPLETE";
-            } break;
-            case Server::Request::State::Error: {
-                *os << "ERROR";
-            } break;
-            default: {
-                *os << "???";
-            };
         }
     }
 

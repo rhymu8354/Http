@@ -221,7 +221,7 @@ TEST_F(ServerTests, ParseGetRequest) {
         "\r\n"
     );
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_EQ(Http::Request::State::Complete, request->state);
     Uri::Uri expectedUri;
     expectedUri.ParseFromString("/hello.txt");
     ASSERT_EQ("GET", request->method);
@@ -247,7 +247,7 @@ TEST_F(ServerTests, ParsePostRequest) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_EQ(Http::Request::State::Complete, request->state);
     Uri::Uri expectedUri;
     expectedUri.ParseFromString("/");
     ASSERT_EQ("POST", request->method);
@@ -273,7 +273,7 @@ TEST_F(ServerTests, ParseInvalidRequestNoMethod) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_EQ(Http::Request::State::Complete, request->state);
     ASSERT_FALSE(request->valid);
 }
 
@@ -288,7 +288,7 @@ TEST_F(ServerTests, ParseInvalidRequestNoTarget) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_EQ(Http::Request::State::Complete, request->state);
     ASSERT_FALSE(request->valid);
 }
 
@@ -303,7 +303,7 @@ TEST_F(ServerTests, ParseInvalidRequestBadProtocol) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_EQ(Http::Request::State::Complete, request->state);
     ASSERT_FALSE(request->valid);
 }
 
@@ -318,7 +318,7 @@ TEST_F(ServerTests, ParseInvalidDamagedHeader) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_EQ(Http::Request::State::Complete, request->state);
     ASSERT_FALSE(request->valid);
     ASSERT_EQ(rawRequest.length(), messageEnd);
 }
@@ -338,7 +338,7 @@ TEST_F(ServerTests, ParseInvalidHeaderLineTooLong) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Error, request->state);
+    ASSERT_EQ(Http::Request::State::Error, request->state);
 }
 
 TEST_F(ServerTests, ParseValidHeaderLineLongerThanDefault) {
@@ -367,7 +367,7 @@ TEST_F(ServerTests, ParseValidHeaderLineLongerThanDefault) {
     ASSERT_EQ("1001", server.GetConfigurationItem("HeaderLineLimit"));
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_EQ(Http::Request::State::Complete, request->state);
 }
 
 TEST_F(ServerTests, ParseInvalidBodyInsanelyTooLarge) {
@@ -382,7 +382,7 @@ TEST_F(ServerTests, ParseInvalidBodyInsanelyTooLarge) {
     size_t messageEnd = std::numeric_limits< size_t >::max();
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Error, request->state);
+    ASSERT_EQ(Http::Request::State::Error, request->state);
 }
 
 TEST_F(ServerTests, ParseInvalidBodySlightlyTooLarge) {
@@ -397,7 +397,7 @@ TEST_F(ServerTests, ParseInvalidBodySlightlyTooLarge) {
     size_t messageEnd = std::numeric_limits< size_t >::max();
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Error, request->state);
+    ASSERT_EQ(Http::Request::State::Error, request->state);
 }
 
 TEST_F(ServerTests, ParseIncompleteBodyRequest) {
@@ -464,7 +464,7 @@ TEST_F(ServerTests, RequestWithNoContentLengthOrChunkedTransferEncodingHasNoBody
         "Hello, World!\r\n"
     );
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Complete, request->state);
+    ASSERT_EQ(Http::Request::State::Complete, request->state);
     Uri::Uri expectedUri;
     expectedUri.ParseFromString("/hello.txt");
     ASSERT_TRUE(request->body.empty());
@@ -766,7 +766,7 @@ TEST_F(ServerTests, ParseInvalidRequestLineTooLong) {
     );
     const auto request = server.ParseRequest(rawRequest, messageEnd);
     ASSERT_FALSE(request == nullptr);
-    ASSERT_EQ(Http::Server::Request::State::Error, request->state);
+    ASSERT_EQ(Http::Request::State::Error, request->state);
 }
 
 TEST_F(ServerTests, ConnectionCloseOrNot) {
@@ -980,7 +980,7 @@ TEST_F(ServerTests, RegisterResourceDelegateSubspace) {
     // and handled correctly this time.
     std::vector< Uri::Uri > requestsReceived;
     const auto resourceDelegate = [&requestsReceived](
-        std::shared_ptr< Http::Server::Request > request
+        std::shared_ptr< Http::Request > request
     ){
         const auto response = std::make_shared< Http::Client::Response >();
         response->statusCode = 200;
@@ -1066,7 +1066,7 @@ TEST_F(ServerTests, RegisterResourceDelegateServerWide) {
     // and handled correctly this time.
     std::vector< Uri::Uri > requestsReceived;
     const auto resourceDelegate = [&requestsReceived](
-        std::shared_ptr< Http::Server::Request > request
+        std::shared_ptr< Http::Request > request
     ){
         const auto response = std::make_shared< Http::Client::Response >();
         response->statusCode = 200;
@@ -1124,7 +1124,7 @@ TEST_F(ServerTests, DontAllowDoubleRegistration) {
 
     // Register /foo/bar delegate.
     const auto foobar = [](
-        std::shared_ptr< Http::Server::Request > request
+        std::shared_ptr< Http::Request > request
     ){
         return std::make_shared< Http::Client::Response >();
     };
@@ -1133,7 +1133,7 @@ TEST_F(ServerTests, DontAllowDoubleRegistration) {
     // Attempt to register another /foo/bar delegate.
     // This should not be allowed because /foo/bar already has a handler.
     const auto imposter = [](
-        std::shared_ptr< Http::Server::Request > request
+        std::shared_ptr< Http::Request > request
     ){
         return std::make_shared< Http::Client::Response >();
     };
@@ -1149,7 +1149,7 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
 
     // Register /foo/bar delegate.
     const auto foobar = [](
-        std::shared_ptr< Http::Server::Request > request
+        std::shared_ptr< Http::Request > request
     ){
         return std::make_shared< Http::Client::Response >();
     };
@@ -1159,7 +1159,7 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
     // Attempt to register /foo delegate.
     // This should not be allowed because it would overlap the /foo/bar delegate.
     const auto foo = [](
-        std::shared_ptr< Http::Server::Request > request
+        std::shared_ptr< Http::Request > request
     ){
         return std::make_shared< Http::Client::Response >();
     };
