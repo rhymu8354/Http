@@ -1029,13 +1029,15 @@ namespace Http {
                     &newHeaderLineLimit
                 ) == 1
             ) {
-                impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                    0,
-                    "Header line limit changed from %zu to %zu",
-                    impl_->headerLineLimit,
-                    newHeaderLineLimit
-                );
-                impl_->headerLineLimit = newHeaderLineLimit;
+                if (impl_->headerLineLimit != newHeaderLineLimit) {
+                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Header line limit changed from %zu to %zu",
+                        impl_->headerLineLimit,
+                        newHeaderLineLimit
+                    );
+                    impl_->headerLineLimit = newHeaderLineLimit;
+                }
             }
         } else if (key == "Port") {
             uint16_t newPort;
@@ -1046,13 +1048,15 @@ namespace Http {
                     &newPort
                 ) == 1
             ) {
-                impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                    0,
-                    "Port number changed from %" PRIu16 " to %" PRIu16,
-                    impl_->port,
-                    newPort
-                );
-                impl_->port = newPort;
+                if (impl_->port != newPort) {
+                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Port number changed from %" PRIu16 " to %" PRIu16,
+                        impl_->port,
+                        newPort
+                    );
+                    impl_->port = newPort;
+                }
             }
         } else if (key == "InactivityTimeout") {
             double newInactivityTimeout;
@@ -1063,13 +1067,15 @@ namespace Http {
                     &newInactivityTimeout
                 ) == 1
             ) {
-                impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                    0,
-                    "Inactivity timeout changed from %lf to %lf",
-                    impl_->inactivityTimeout,
-                    newInactivityTimeout
-                );
-                impl_->inactivityTimeout = newInactivityTimeout;
+                if (impl_->inactivityTimeout != newInactivityTimeout) {
+                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Inactivity timeout changed from %lf to %lf",
+                        impl_->inactivityTimeout,
+                        newInactivityTimeout
+                    );
+                    impl_->inactivityTimeout = newInactivityTimeout;
+                }
             }
         } else if (key == "RequestTimeout") {
             double newRequestTimeout;
@@ -1080,13 +1086,34 @@ namespace Http {
                     &newRequestTimeout
                 ) == 1
             ) {
-                impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                    0,
-                    "Request timeout changed from %lf to %lf",
-                    impl_->requestTimeout,
-                    newRequestTimeout
-                );
-                impl_->requestTimeout = newRequestTimeout;
+                if (impl_->requestTimeout != newRequestTimeout) {
+                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Request timeout changed from %lf to %lf",
+                        impl_->requestTimeout,
+                        newRequestTimeout
+                    );
+                    impl_->requestTimeout = newRequestTimeout;
+                }
+            }
+        } else if (key == "IdleTimeout") {
+            double newIdleTimeout;
+            if (
+                sscanf(
+                    value.c_str(),
+                    "%lf",
+                    &newIdleTimeout
+                ) == 1
+            ) {
+                if (impl_->idleTimeout != newIdleTimeout) {
+                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Idle timeout changed from %lf to %lf",
+                        impl_->idleTimeout,
+                        newIdleTimeout
+                    );
+                    impl_->idleTimeout = newIdleTimeout;
+                }
             }
         }
     }

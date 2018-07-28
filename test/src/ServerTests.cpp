@@ -1568,3 +1568,26 @@ TEST_F(ServerTests, IdleTimeout) {
     timeKeeper->currentTime = 103.0;
     ASSERT_TRUE(connection->AwaitBroken());
 }
+
+TEST_F(ServerTests, NoDiagnosticMessageIfConfigurationItemDidNotReallyChange) {
+    server.SetConfigurationItem("HeaderLineLimit", "1000");
+    server.SetConfigurationItem("HeaderLineLimit", "1001");
+    server.SetConfigurationItem("Port", "80");
+    server.SetConfigurationItem("Port", "81");
+    server.SetConfigurationItem("InactivityTimeout", "1.0");
+    server.SetConfigurationItem("InactivityTimeout", "1.1");
+    server.SetConfigurationItem("RequestTimeout", "60.0");
+    server.SetConfigurationItem("RequestTimeout", "60.1");
+    server.SetConfigurationItem("IdleTimeout", "60.0");
+    server.SetConfigurationItem("IdleTimeout", "60.1");
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[0]: Header line limit changed from 1000 to 1001",
+            "Http::Server[0]: Port number changed from 80 to 81",
+            "Http::Server[0]: Inactivity timeout changed from 1.000000 to 1.100000",
+            "Http::Server[0]: Request timeout changed from 60.000000 to 60.100000",
+            "Http::Server[0]: Idle timeout changed from 60.000000 to 60.100000",
+        }),
+        diagnosticMessages
+    );
+}
