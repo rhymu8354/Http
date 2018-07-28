@@ -71,6 +71,29 @@ namespace {
     };
 
     /**
+     * These are the different results that can be indicated
+     * when a string is parsed as a size integer.
+     */
+    enum class ParseSizeResult {
+        /**
+         * This indicates the size was parsed successfully.
+         */
+        Success,
+
+        /**
+         * This indicates the size had one or more characters
+         * that were not digits.
+         */
+        NotANumber,
+
+        /**
+         * This indicates the size exceeded the maximum representable
+         * size integer.
+         */
+        Overflow
+    };
+
+    /**
      * This function parses the given string as a size
      * integer, detecting invalid characters, overflow, etc.
      *
@@ -84,7 +107,7 @@ namespace {
      *     An indication of whether or not the number was parsed
      *     successfully is returned.
      */
-    bool ParseSize(
+    ParseSizeResult ParseSize(
         const std::string& numberString,
         size_t& number
     ) {
@@ -94,7 +117,7 @@ namespace {
                 (c < '0')
                 || (c > '9')
             ) {
-                return false;
+                return ParseSizeResult::NotANumber;
             }
             auto previousNumber = number;
             number *= 10;
@@ -102,10 +125,10 @@ namespace {
             if (
                 (number / 10) != previousNumber
             ) {
-                return false;
+                return ParseSizeResult::Overflow;
             }
         }
-        return true;
+        return ParseSizeResult::Success;
     }
 
     /**
@@ -414,12 +437,26 @@ namespace Http {
                 // assume the body extends to the end of the raw message.
                 if (request->headers.HasHeader("Content-Length")) {
                     size_t contentLength;
-                    if (!ParseSize(request->headers.GetHeaderValue("Content-Length"), contentLength)) {
-                        request->state = Request::State::Error;
-                        return messageEnd;
+                    switch (
+                        ParseSize(
+                            request->headers.GetHeaderValue("Content-Length"),
+                            contentLength
+                        )
+                    ) {
+                        case ParseSizeResult::NotANumber: {
+                            request->state = Request::State::Error;
+                        } return messageEnd;
+
+                        case ParseSizeResult::Overflow: {
+                            request->state = Request::State::Error;
+                            request->responseStatusCode = 413;
+                            request->responseReasonPhrase = "Payload Too Large";
+                        } return messageEnd;
                     }
                     if (contentLength > MAX_CONTENT_LENGTH) {
                         request->state = Request::State::Error;
+                        request->responseStatusCode = 413;
+                        request->responseReasonPhrase = "Payload Too Large";
                         return messageEnd;
                     }
                     if (contentLength > bytesAvailableForBody) {
@@ -559,16 +596,17 @@ namespace Http {
                         reasonPhrase = "Not Found";
                     }
                 } else {
-                    const std::string cannedResponse = (
-                        "HTTP/1.1 400 Bad Request\r\n"
+                    responseText = SystemAbstractions::sprintf(
+                        "HTTP/1.1 %u %s\r\n"
                         "Content-Length: 13\r\n"
                         "Content-Type: text/plain\r\n"
                         "\r\n"
-                        "FeelsBadMan\r\n"
+                        "FeelsBadMan\r\n",
+                        request->responseStatusCode,
+                        request->responseReasonPhrase.c_str()
                     );
-                    responseText = cannedResponse;
-                    statusCode = 400;
-                    reasonPhrase = "Bad Request";
+                    statusCode = request->responseStatusCode;
+                    reasonPhrase = request->responseReasonPhrase;
                 }
                 connectionState->connection->SendData(
                     std::vector< uint8_t >(

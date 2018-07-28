@@ -104,6 +104,20 @@ namespace Http {
          */
         State state = State::RequestLine;
 
+        /**
+         * If the state of the request is State::Error,
+         * or if the request is not valid, this indicates
+         * the status code which should be given back to the client.
+         */
+        unsigned int responseStatusCode = 400;
+
+        /**
+         * If the state of the request is State::Error,
+         * or if the request is not valid, this is the human-readable
+         * text that describes the problem.
+         */
+        std::string responseReasonPhrase = "Bad Request";
+
         // Methods
 
         /**
