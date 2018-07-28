@@ -13,6 +13,7 @@ set(Headers
     include/Http/Response.hpp
     include/Http/Server.hpp
     include/Http/ServerTransport.hpp
+    include/Http/TimeKeeper.hpp
 )
 
 set(Sources

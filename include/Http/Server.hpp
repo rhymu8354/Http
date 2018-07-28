@@ -11,6 +11,7 @@
 
 #include "IServer.hpp"
 #include "ServerTransport.hpp"
+#include "TimeKeeper.hpp"
 
 #include <functional>
 #include <Http/Client.hpp>
@@ -49,6 +50,11 @@ namespace Http {
              * This is the transport layer implementation to use.
              */
             std::shared_ptr< ServerTransport > transport;
+
+            /**
+             * This is the object used to track time in the server.
+             */
+            std::shared_ptr< TimeKeeper > timeKeeper;
 
             /**
              * This is the public port number to which clients may connect
