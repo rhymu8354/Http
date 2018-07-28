@@ -9,6 +9,8 @@
  * © 2018 by Richard Walters
  */
 
+#include "Response.hpp"
+
 #include <memory>
 #include <MessageHeaders/MessageHeaders.hpp>
 #include <string>
@@ -24,51 +26,6 @@ namespace Http {
      * and parse HTTP responses received back from web servers.
      */
     class Client {
-        // Types
-    public:
-        /**
-         * This represents an overall HTTP response given to a client,
-         * decomposed into its various elements.
-         */
-        struct Response {
-            // Properties
-
-            /**
-             * This is a machine-readable number that describes
-             * the overall status of the request.
-             */
-            unsigned int statusCode;
-
-            /**
-             * This is the human-readable text that describes
-             * the overall status of the request.
-             */
-            std::string reasonPhrase;
-
-            /**
-             * These are the message headers that were included
-             * in the request.
-             */
-            MessageHeaders::MessageHeaders headers;
-
-            /**
-             * This is the body of the request, if there is a body.
-             */
-            std::string body;
-
-            // Methods
-
-            /**
-             * This method generates the data to transmit to the client
-             * to return this response to the client.
-             *
-             * @return
-             *     The data to transmit to the client to return
-             *     this response to the client is returned.
-             */
-            std::string Generate() const;
-        };
-
         // Lifecycle management
     public:
         ~Client();

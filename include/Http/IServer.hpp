@@ -10,6 +10,7 @@
  */
 
 #include "Request.hpp"
+#include "Response.hpp"
 
 #include <functional>
 #include <Http/Client.hpp>
@@ -41,7 +42,7 @@ namespace Http {
          *     The response to be returned to the client is returned.
          */
         typedef std::function<
-            std::shared_ptr< Client::Response >(
+            std::shared_ptr< Response >(
                 std::shared_ptr< Request > request
             )
         > ResourceDelegate;

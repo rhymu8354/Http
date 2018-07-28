@@ -10,6 +10,7 @@ set(Headers
     include/Http/Connection.hpp
     include/Http/IServer.hpp
     include/Http/Request.hpp
+    include/Http/Response.hpp
     include/Http/Server.hpp
     include/Http/ServerTransport.hpp
 )
@@ -17,6 +18,7 @@ set(Headers
 set(Sources
     src/Client.cpp
     src/Request.cpp
+    src/Response.cpp
     src/Server.cpp
 )
 

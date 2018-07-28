@@ -982,7 +982,7 @@ TEST_F(ServerTests, RegisterResourceDelegateSubspace) {
     const auto resourceDelegate = [&requestsReceived](
         std::shared_ptr< Http::Request > request
     ){
-        const auto response = std::make_shared< Http::Client::Response >();
+        const auto response = std::make_shared< Http::Response >();
         response->statusCode = 200;
         response->reasonPhrase = "OK";
         requestsReceived.push_back(request->target);
@@ -1068,7 +1068,7 @@ TEST_F(ServerTests, RegisterResourceDelegateServerWide) {
     const auto resourceDelegate = [&requestsReceived](
         std::shared_ptr< Http::Request > request
     ){
-        const auto response = std::make_shared< Http::Client::Response >();
+        const auto response = std::make_shared< Http::Response >();
         response->statusCode = 200;
         response->reasonPhrase = "OK";
         requestsReceived.push_back(request->target);
@@ -1126,7 +1126,7 @@ TEST_F(ServerTests, DontAllowDoubleRegistration) {
     const auto foobar = [](
         std::shared_ptr< Http::Request > request
     ){
-        return std::make_shared< Http::Client::Response >();
+        return std::make_shared< Http::Response >();
     };
     const auto unregisterFoobar = server.RegisterResource({ "foo", "bar" }, foobar);
 
@@ -1135,7 +1135,7 @@ TEST_F(ServerTests, DontAllowDoubleRegistration) {
     const auto imposter = [](
         std::shared_ptr< Http::Request > request
     ){
-        return std::make_shared< Http::Client::Response >();
+        return std::make_shared< Http::Response >();
     };
     const auto unregisterImpostor = server.RegisterResource({ "foo", "bar" }, imposter);
     ASSERT_TRUE(unregisterImpostor == nullptr);
@@ -1151,7 +1151,7 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
     const auto foobar = [](
         std::shared_ptr< Http::Request > request
     ){
-        return std::make_shared< Http::Client::Response >();
+        return std::make_shared< Http::Response >();
     };
     auto unregisterFoobar = server.RegisterResource({ "foo", "bar" }, foobar);
     ASSERT_FALSE(unregisterFoobar == nullptr);
@@ -1161,7 +1161,7 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
     const auto foo = [](
         std::shared_ptr< Http::Request > request
     ){
-        return std::make_shared< Http::Client::Response >();
+        return std::make_shared< Http::Response >();
     };
     auto unregisterFoo = server.RegisterResource({ "foo" }, foo);
     ASSERT_TRUE(unregisterFoo == nullptr);

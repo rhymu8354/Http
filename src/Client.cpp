@@ -73,7 +73,7 @@ namespace {
      *     was successfully parsed is returned.
      */
     bool ParseStatusLine(
-        std::shared_ptr< Http::Client::Response > response,
+        std::shared_ptr< Http::Response > response,
         const std::string& statusLine
     ) {
         // Parse the protocol.
@@ -114,14 +114,6 @@ namespace {
 }
 
 namespace Http {
-
-    std::string Client::Response::Generate() const {
-        std::ostringstream builder;
-        builder << "HTTP/1.1 " << statusCode << ' ' << reasonPhrase << "\r\n";
-        builder << headers.GenerateRawHeaders();
-        builder << body;
-        return builder.str();
-    }
 
     /**
      * This contains the private properties of a Client instance.
