@@ -968,6 +968,7 @@ TEST_F(ServerTests, DefaultServerUri) {
         );
         ASSERT_FALSE(response == nullptr);
         EXPECT_NE(400, response->statusCode) << "Failed for test vector index " << index;
+        server.Demobilize();
         ++index;
     }
 }
@@ -1018,6 +1019,7 @@ TEST_F(ServerTests, HostNotMatchingServerUri) {
             EXPECT_NE(400, response->statusCode) << "Failed for test vector index " << index;
         }
         ASSERT_FALSE(connection->broken) << "Failed for test vector index " << index;
+        server.Demobilize();
         ++index;
     }
 }
@@ -1407,4 +1409,13 @@ TEST_F(ServerTests, RequestInactivityTimeout) {
     );
     EXPECT_EQ(408, response->statusCode);
     EXPECT_EQ("Request Timeout", response->reasonPhrase);
+}
+
+TEST_F(ServerTests, MobilizeWhenAlreadyMobilized) {
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = std::make_shared< MockTransport >();
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    deps.port = 1234;
+    ASSERT_TRUE(server.Mobilize(deps));
+    ASSERT_FALSE(server.Mobilize(deps));
 }

@@ -235,6 +235,11 @@ namespace Http {
         size_t headerLineLimit = DEFAULT_HEADER_LINE_LIMIT;
 
         /**
+         * This flag indicates whether or not the server is running.
+         */
+        bool mobilized = false;
+
+        /**
          * This is the transport layer currently bound.
          */
         std::shared_ptr< ServerTransport > transport;
@@ -706,6 +711,9 @@ namespace Http {
     }
 
     bool Server::Mobilize(const MobilizationDependencies& deps) {
+        if (impl_->mobilized) {
+            return false;
+        }
         impl_->transport = deps.transport;
         if (
             impl_->transport->BindNetwork(
@@ -723,6 +731,7 @@ namespace Http {
             impl_->transport = nullptr;
             return false;
         }
+        impl_->mobilized = true;
         return true;
     }
 
@@ -731,6 +740,7 @@ namespace Http {
             impl_->transport->ReleaseNetwork();
             impl_->transport = nullptr;
         }
+        impl_->mobilized = false;
     }
 
     auto Server::ParseRequest(const std::string& rawRequest) -> std::shared_ptr< Request > {
