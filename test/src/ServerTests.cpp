@@ -1030,7 +1030,6 @@ TEST_F(ServerTests, RegisterResourceDelegateSubspace) {
     connection->dataReceived.clear();
 }
 
-
 TEST_F(ServerTests, RegisterResourceDelegateServerWide) {
     auto transport = std::make_shared< MockTransport >();
     (void)server.Mobilize(transport, 1234);
@@ -1175,4 +1174,43 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
     // This should not be allowed because it would overlap the /foo delegate.
     unregisterFoobar = server.RegisterResource({ "foo", "bar" }, foobar);
     ASSERT_TRUE(unregisterFoobar == nullptr);
+}
+
+TEST_F(ServerTests, ContentLengthSetByServer) {
+    auto transport = std::make_shared< MockTransport >();
+    (void)server.Mobilize(transport, 1234);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    std::vector< Uri::Uri > requestsReceived;
+    const auto resourceDelegate = [&requestsReceived](
+        std::shared_ptr< Http::Request > request
+    ){
+        const auto response = std::make_shared< Http::Response >();
+        response->statusCode = 200;
+        response->reasonPhrase = "OK";
+        response->headers.SetHeader("Content-Type", "text/plain");
+        response->body = "Hello!";
+        requestsReceived.push_back(request->target);
+        return response;
+    };
+    const auto unregistrationDelegate = server.RegisterResource({ "foo" }, resourceDelegate);
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    const auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_EQ("6", response->headers.GetHeaderValue("Content-Length"));
 }
