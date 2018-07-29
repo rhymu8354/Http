@@ -132,7 +132,7 @@ namespace {
             brokenDelegate = newBrokenDelegate;
         }
 
-        virtual void SendData(std::vector< uint8_t > data) override {
+        virtual void SendData(const std::vector< uint8_t >& data) override {
             std::lock_guard< decltype(mutex) > lock(mutex);
             (void)dataReceived.insert(
                 dataReceived.end(),

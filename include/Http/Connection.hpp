@@ -32,7 +32,7 @@ namespace Http {
          * @param[in] data
          *     This is the data that was received from the remote peer.
          */
-        typedef std::function< void(std::vector< uint8_t > data) > DataReceivedDelegate;
+        typedef std::function< void(const std::vector< uint8_t >& data) > DataReceivedDelegate;
 
         /**
          * This is the type of delegate used to notify the user that
@@ -78,7 +78,7 @@ namespace Http {
          * @param[in] data
          *     This is the data to send to the remote peer.
          */
-        virtual void SendData(std::vector< uint8_t > data) = 0;
+        virtual void SendData(const std::vector< uint8_t >& data) = 0;
 
         /**
          * This method breaks the connection to the remote peer.
