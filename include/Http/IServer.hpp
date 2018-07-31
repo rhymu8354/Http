@@ -14,6 +14,7 @@
 
 #include <functional>
 #include <Http/Client.hpp>
+#include <Http/Connection.hpp>
 #include <memory>
 #include <MessageHeaders/MessageHeaders.hpp>
 #include <stddef.h>
@@ -38,12 +39,16 @@ namespace Http {
          * @param[in] request
          *     This is the request to apply to the resource.
          *
+         * @param[in] connection
+         *     This is the connection on which the request was made.
+         *
          * @return
          *     The response to be returned to the client is returned.
          */
         typedef std::function<
             std::shared_ptr< Response >(
-                std::shared_ptr< Request > request
+                std::shared_ptr< Request > request,
+                std::shared_ptr< Connection > connection
             )
         > ResourceDelegate;
 

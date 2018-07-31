@@ -1111,7 +1111,8 @@ TEST_F(ServerTests, RegisterResourceDelegateSubspace) {
     // and handled correctly this time.
     std::vector< Uri::Uri > requestsReceived;
     const auto resourceDelegate = [&requestsReceived](
-        std::shared_ptr< Http::Request > request
+        std::shared_ptr< Http::Request > request,
+        std::shared_ptr< Http::Connection > connection
     ){
         const auto response = std::make_shared< Http::Response >();
         response->statusCode = 200;
@@ -1200,7 +1201,8 @@ TEST_F(ServerTests, RegisterResourceDelegateServerWide) {
     // and handled correctly this time.
     std::vector< Uri::Uri > requestsReceived;
     const auto resourceDelegate = [&requestsReceived](
-        std::shared_ptr< Http::Request > request
+        std::shared_ptr< Http::Request > request,
+        std::shared_ptr< Http::Connection > connection
     ){
         const auto response = std::make_shared< Http::Response >();
         response->statusCode = 200;
@@ -1262,7 +1264,8 @@ TEST_F(ServerTests, DontAllowDoubleRegistration) {
 
     // Register /foo/bar delegate.
     const auto foobar = [](
-        std::shared_ptr< Http::Request > request
+        std::shared_ptr< Http::Request > request,
+        std::shared_ptr< Http::Connection > connection
     ){
         return std::make_shared< Http::Response >();
     };
@@ -1271,7 +1274,8 @@ TEST_F(ServerTests, DontAllowDoubleRegistration) {
     // Attempt to register another /foo/bar delegate.
     // This should not be allowed because /foo/bar already has a handler.
     const auto imposter = [](
-        std::shared_ptr< Http::Request > request
+        std::shared_ptr< Http::Request > request,
+        std::shared_ptr< Http::Connection > connection
     ){
         return std::make_shared< Http::Response >();
     };
@@ -1291,7 +1295,8 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
 
     // Register /foo/bar delegate.
     const auto foobar = [](
-        std::shared_ptr< Http::Request > request
+        std::shared_ptr< Http::Request > request,
+        std::shared_ptr< Http::Connection > connection
     ){
         return std::make_shared< Http::Response >();
     };
@@ -1301,7 +1306,8 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
     // Attempt to register /foo delegate.
     // This should not be allowed because it would overlap the /foo/bar delegate.
     const auto foo = [](
-        std::shared_ptr< Http::Request > request
+        std::shared_ptr< Http::Request > request,
+        std::shared_ptr< Http::Connection > connection
     ){
         return std::make_shared< Http::Response >();
     };
@@ -1330,7 +1336,8 @@ TEST_F(ServerTests, ContentLengthSetByServer) {
     transport->connectionDelegate(connection);
     std::vector< Uri::Uri > requestsReceived;
     const auto resourceDelegate = [&requestsReceived](
-        std::shared_ptr< Http::Request > request
+        std::shared_ptr< Http::Request > request,
+        std::shared_ptr< Http::Connection > connection
     ){
         const auto response = std::make_shared< Http::Response >();
         response->statusCode = 200;
