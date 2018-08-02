@@ -14,6 +14,7 @@
 #include <limits>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <SystemAbstractions/StringExtensions.hpp>
+#include <thread>
 #include <Uri/Uri.hpp>
 
 namespace {
