@@ -42,13 +42,21 @@ namespace Http {
          * @param[in] connection
          *     This is the connection on which the request was made.
          *
+         * @param[in] trailer
+         *     This holds any characters that have already been received
+         *     by the server but come after the end of the current
+         *     request.  A handler that upgrades the connection might want
+         *     to interpret these characters within the context of the
+         *     upgraded connection.
+         *
          * @return
          *     The response to be returned to the client is returned.
          */
         typedef std::function<
             std::shared_ptr< Response >(
                 std::shared_ptr< Request > request,
-                std::shared_ptr< Connection > connection
+                std::shared_ptr< Connection > connection,
+                const std::string& trailer
             )
         > ResourceDelegate;
 

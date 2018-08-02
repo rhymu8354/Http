@@ -827,7 +827,7 @@ namespace Http {
                         && (resource->handler != nullptr)
                     ) {
                         request->target.SetPath({ resourcePath.begin(), resourcePath.end() });
-                        response = resource->handler(request, connectionState->connection);
+                        response = resource->handler(request, connectionState->connection, connectionState->reassemblyBuffer);
                     } else {
                         response = std::make_shared< Response >();
                         response->statusCode = 404;
@@ -868,6 +868,9 @@ namespace Http {
                     }
                 }
                 IssueResponse(connectionState, response);
+                if (response->statusCode == 101) {
+                    connectionState->connection = nullptr;
+                }
             }
         }
 
