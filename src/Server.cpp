@@ -341,10 +341,12 @@ namespace Http {
         std::set< std::shared_ptr< ConnectionState > > activeConnections;
 
         /**
-         * These are the client connections that have broken and will
-         * be destroyed by the reaper thread.
+         * These are the client connections that are no longer
+         * managed by the server (because they have either broken or
+         * have been upgraded and are now handled by a resource) and will
+         * be dropped by the reaper thread.
          */
-        std::set< std::shared_ptr< ConnectionState > > brokenConnections;
+        std::set< std::shared_ptr< ConnectionState > > connectionsToDrop;
 
         /**
          * This is a helper object used to generate and publish
@@ -354,9 +356,9 @@ namespace Http {
 
         /**
          * This is a worker thread whose sole job is to clear the
-         * brokenConnections set.  The reason we need to put broken
-         * connections there in the first place is because we can't
-         * destroy a connection that is in the process of calling
+         * connectionsToDrop set.  The reason we need to put
+         * connections to drop there in the first place is because we
+         * can't drop a connection that is in the process of calling
          * us through one of the delegates we gave it.
          */
         std::thread reaper;
@@ -418,16 +420,16 @@ namespace Http {
         /**
          * This method is the body of the reaper thread.
          * Until it's told to stop, it simply clears
-         * the brokenConnections set whenever it wakes up.
+         * the connectionsToDrop set whenever it wakes up.
          */
         void Reaper() {
             std::unique_lock< decltype(mutex) > lock(mutex);
             while (!stopReaper) {
-                std::set< std::shared_ptr< ConnectionState > > oldBrokenConnections(std::move(brokenConnections));
-                brokenConnections.clear();
+                std::set< std::shared_ptr< ConnectionState > > oldConnectionsToDrop(std::move(connectionsToDrop));
+                connectionsToDrop.clear();
                 {
                     lock.unlock();
-                    oldBrokenConnections.clear();
+                    oldConnectionsToDrop.clear();
                     lock.lock();
                 }
                 reaperWakeCondition.wait(
@@ -435,7 +437,7 @@ namespace Http {
                     [this]{
                         return (
                             stopReaper
-                            || !brokenConnections.empty()
+                            || !connectionsToDrop.empty()
                         );
                     }
                 );
@@ -757,7 +759,7 @@ namespace Http {
                 connectionState->connection->GetPeerId().c_str(),
                 reason.c_str()
             );
-            (void)brokenConnections.insert(connectionState);
+            (void)connectionsToDrop.insert(connectionState);
             reaperWakeCondition.notify_all();
             (void)activeConnections.erase(connectionState);
         }
@@ -870,6 +872,9 @@ namespace Http {
                 IssueResponse(connectionState, response);
                 if (response->statusCode == 101) {
                     connectionState->connection = nullptr;
+                    (void)connectionsToDrop.insert(connectionState);
+                    reaperWakeCondition.notify_all();
+                    (void)activeConnections.erase(connectionState);
                 }
             }
         }

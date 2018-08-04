@@ -1715,3 +1715,73 @@ TEST_F(ServerTests, UpgradeConnection) {
     upgradedConnection = nullptr;
     ASSERT_TRUE(connectionDestroyed);
 }
+
+TEST_F(ServerTests, UpgradedConnectionsShouldNotBeTimedOutByServer) {
+    // Set up the server.
+    auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("RequestTimeout", "1.0");
+    (void)server.Mobilize(deps);
+
+    // Register resource handler that will upgrade the connection
+    // of any request sent to it.
+    bool requestReceived = false;
+    std::shared_ptr< Http::Connection > upgradedConnection;
+    const auto resourceDelegate = [
+        &upgradedConnection,
+        &requestReceived
+    ](
+        std::shared_ptr< Http::Request > request,
+        std::shared_ptr< Http::Connection > connection,
+        const std::string& trailer
+    ){
+        requestReceived = true;
+        const auto response = std::make_shared< Http::Response >();
+        response->statusCode = 101;
+        response->reasonPhrase = "Switching Protocols";
+        response->headers.SetHeader("Connection", "upgrade");
+        upgradedConnection = connection;
+        upgradedConnection->SetDataReceivedDelegate(
+            [](std::vector< uint8_t > data){}
+        );
+        upgradedConnection->SetBrokenDelegate(
+            []{}
+        );
+        return response;
+    };
+    const auto unregistrationDelegate = server.RegisterResource({ "foo" }, resourceDelegate);
+
+    // Connect to server.
+    auto connection = std::make_shared< MockConnection >();
+    bool connectionDestroyed = false;
+    connection->onDestruction = [&connectionDestroyed]{ connectionDestroyed = true; };
+    transport->connectionDelegate(connection);
+
+    // Send a request that should trigger an upgrade.
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+        "Hello!\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    const auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    connection->dataReceived.clear();
+    timeKeeper->currentTime = 1.001;
+    ASSERT_FALSE(connection->AwaitResponse());
+}
