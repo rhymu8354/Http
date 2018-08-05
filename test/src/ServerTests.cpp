@@ -250,17 +250,18 @@ struct ServerTests
     std::vector< std::string > diagnosticMessages;
 
     /**
-     * This is the subscription token obtained when subscribing
+     * This is the delegate obtained when subscribing
      * to receive diagnostic messages from the unit under test.
+     * It's called to terminate the subscription.
      */
-    SystemAbstractions::DiagnosticsSender::SubscriptionToken diagnosticsSubscription;
+    SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate diagnosticsUnsubscribeDelegate;
 
     // Methods
 
     // ::testing::Test
 
     virtual void SetUp() {
-        diagnosticsSubscription = server.SubscribeToDiagnostics(
+        diagnosticsUnsubscribeDelegate = server.SubscribeToDiagnostics(
             [this](
                 std::string senderName,
                 size_t level,
@@ -281,7 +282,7 @@ struct ServerTests
 
     virtual void TearDown() {
         server.Demobilize();
-        server.UnsubscribeFromDiagnostics(diagnosticsSubscription);
+        diagnosticsUnsubscribeDelegate();
     }
 };
 

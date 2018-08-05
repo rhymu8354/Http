@@ -80,24 +80,13 @@ namespace Http {
          *     desires to receive.
          *
          * @return
-         *     A token representing the subscription is returned.
-         *     This may be passed to UnsubscribeFromDiagnostics
-         *     in order to terminate the subscription.
+         *     A function is returned which may be called
+         *     to terminate the subscription.
          */
-        virtual SystemAbstractions::DiagnosticsSender::SubscriptionToken SubscribeToDiagnostics(
+        virtual SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate SubscribeToDiagnostics(
             SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
             size_t minLevel = 0
         ) = 0;
-
-        /**
-         * This method terminates a subscription previously formed
-         * by calling the SubscribeToDiagnostics method.
-         *
-         * @param[in] subscriptionToken
-         *     This is the token returned from SubscribeToDiagnostics
-         *     when the subscription was formed.
-         */
-        virtual void UnsubscribeFromDiagnostics(SystemAbstractions::DiagnosticsSender::SubscriptionToken subscriptionToken) = 0;
 
         /**
          * This method returns the value of the given server

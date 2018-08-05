@@ -1003,15 +1003,11 @@ namespace Http {
         }
     }
 
-    SystemAbstractions::DiagnosticsSender::SubscriptionToken Server::SubscribeToDiagnostics(
+    SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate Server::SubscribeToDiagnostics(
         SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
         size_t minLevel
     ) {
         return impl_->diagnosticsSender.SubscribeToDiagnostics(delegate, minLevel);
-    }
-
-    void Server::UnsubscribeFromDiagnostics(SystemAbstractions::DiagnosticsSender::SubscriptionToken subscriptionToken) {
-        impl_->diagnosticsSender.UnsubscribeFromDiagnostics(subscriptionToken);
     }
 
     std::string Server::GetConfigurationItem(const std::string& key) {

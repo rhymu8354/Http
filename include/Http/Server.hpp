@@ -142,11 +142,10 @@ namespace Http {
 
         // IServer
     public:
-        virtual SystemAbstractions::DiagnosticsSender::SubscriptionToken SubscribeToDiagnostics(
+        virtual SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate SubscribeToDiagnostics(
             SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
             size_t minLevel = 0
         ) override;
-        virtual void UnsubscribeFromDiagnostics(SystemAbstractions::DiagnosticsSender::SubscriptionToken subscriptionToken) override;
         virtual std::string GetConfigurationItem(const std::string& key) override;
         virtual void SetConfigurationItem(
             const std::string& key,
