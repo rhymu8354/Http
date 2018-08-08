@@ -7,6 +7,7 @@
  */
 
 #include <Http/Client.hpp>
+#include <limits>
 #include <string>
 #include <sstream>
 
@@ -45,14 +46,12 @@ namespace {
             ) {
                 return false;
             }
-            auto previousNumber = number;
-            number *= 10;
-            number += (uint16_t)(c - '0');
-            if (
-                (number / 10) != previousNumber
-            ) {
+            const auto digit = (uint16_t)(c - '0');
+            if ((std::numeric_limits< size_t >::max() - digit) / 10 < number) {
                 return false;
             }
+            number *= 10;
+            number += digit;
         }
         return true;
     }

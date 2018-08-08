@@ -153,14 +153,12 @@ namespace {
             ) {
                 return ParseSizeResult::NotANumber;
             }
-            auto previousNumber = number;
-            number *= 10;
-            number += (uint16_t)(c - '0');
-            if (
-                (number / 10) != previousNumber
-            ) {
+            const auto digit = (uint16_t)(c - '0');
+            if ((std::numeric_limits< size_t >::max() - digit) / 10 < number) {
                 return ParseSizeResult::Overflow;
             }
+            number *= 10;
+            number += digit;
         }
         return ParseSizeResult::Success;
     }
