@@ -1420,6 +1420,7 @@ TEST_F(ServerTests, ClientSentRequestWithTooLargePayloadOverflowingContentLength
     );
     EXPECT_EQ(413, response->statusCode);
     EXPECT_EQ("Payload Too Large", response->reasonPhrase);
+    EXPECT_TRUE(response->headers.HasHeaderToken("Connection", "close"));
     EXPECT_TRUE(connection->broken);
 }
 
@@ -1456,6 +1457,7 @@ TEST_F(ServerTests, ClientSentRequestWithTooLargePayloadNotOverflowingContentLen
     );
     EXPECT_EQ(413, response->statusCode);
     EXPECT_EQ("Payload Too Large", response->reasonPhrase);
+    EXPECT_TRUE(response->headers.HasHeaderToken("Connection", "close"));
     EXPECT_TRUE(connection->broken);
 }
 
