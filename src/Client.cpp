@@ -72,7 +72,7 @@ namespace {
      *     was successfully parsed is returned.
      */
     bool ParseStatusLine(
-        std::shared_ptr< Http::Response > response,
+        Http::Response& response,
         const std::string& statusLine
     ) {
         // Parse the protocol.
@@ -102,11 +102,11 @@ namespace {
         if (statusCodeAsSize > 999) {
             return false;
         } else {
-            response->statusCode = (unsigned int)statusCodeAsSize;
+            response.statusCode = (unsigned int)statusCodeAsSize;
         }
 
         // Parse the reason phrase.
-        response->reasonPhrase = statusLine.substr(statusCodeDelimiter + 1);
+        response.reasonPhrase = statusLine.substr(statusCodeDelimiter + 1);
         return true;
     }
 
@@ -144,7 +144,7 @@ namespace Http {
             return nullptr;
         }
         const auto statusLine = rawResponse.substr(0, statusLineEnd);
-        if (!ParseStatusLine(response, statusLine)) {
+        if (!ParseStatusLine(*response, statusLine)) {
             return nullptr;
         }
 

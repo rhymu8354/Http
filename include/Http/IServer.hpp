@@ -53,8 +53,8 @@ namespace Http {
          *     The response to be returned to the client is returned.
          */
         typedef std::function<
-            std::shared_ptr< Response >(
-                std::shared_ptr< Request > request,
+            Response(
+                const Request& request,
                 std::shared_ptr< Connection > connection,
                 const std::string& trailer
             )

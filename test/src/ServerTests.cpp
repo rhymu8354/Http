@@ -1122,14 +1122,14 @@ TEST_F(ServerTests, RegisterResourceDelegateSubspace) {
     // and handled correctly this time.
     std::vector< Uri::Uri > requestsReceived;
     const auto resourceDelegate = [&requestsReceived](
-        std::shared_ptr< Http::Request > request,
+        const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
-        const auto response = std::make_shared< Http::Response >();
-        response->statusCode = 200;
-        response->reasonPhrase = "OK";
-        requestsReceived.push_back(request->target);
+        Http::Response response;
+        response.statusCode = 200;
+        response.reasonPhrase = "OK";
+        requestsReceived.push_back(request.target);
         return response;
     };
     const auto unregistrationDelegate = server.RegisterResource({ "foo" }, resourceDelegate);
@@ -1213,14 +1213,14 @@ TEST_F(ServerTests, RegisterResourceDelegateServerWide) {
     // and handled correctly this time.
     std::vector< Uri::Uri > requestsReceived;
     const auto resourceDelegate = [&requestsReceived](
-        std::shared_ptr< Http::Request > request,
+        const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
-        const auto response = std::make_shared< Http::Response >();
-        response->statusCode = 200;
-        response->reasonPhrase = "OK";
-        requestsReceived.push_back(request->target);
+        Http::Response response;
+        response.statusCode = 200;
+        response.reasonPhrase = "OK";
+        requestsReceived.push_back(request.target);
         return response;
     };
     const auto unregistrationDelegate = server.RegisterResource({ }, resourceDelegate);
@@ -1277,22 +1277,22 @@ TEST_F(ServerTests, DontAllowDoubleRegistration) {
 
     // Register /foo/bar delegate.
     const auto foobar = [](
-        std::shared_ptr< Http::Request > request,
+        const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
-        return std::make_shared< Http::Response >();
+        return Http::Response();
     };
     const auto unregisterFoobar = server.RegisterResource({ "foo", "bar" }, foobar);
 
     // Attempt to register another /foo/bar delegate.
     // This should not be allowed because /foo/bar already has a handler.
     const auto imposter = [](
-        std::shared_ptr< Http::Request > request,
+        const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
-        return std::make_shared< Http::Response >();
+        return Http::Response();
     };
     const auto unregisterImpostor = server.RegisterResource({ "foo", "bar" }, imposter);
     ASSERT_TRUE(unregisterImpostor == nullptr);
@@ -1310,11 +1310,11 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
 
     // Register /foo/bar delegate.
     const auto foobar = [](
-        std::shared_ptr< Http::Request > request,
+        const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
-        return std::make_shared< Http::Response >();
+        return Http::Response();
     };
     auto unregisterFoobar = server.RegisterResource({ "foo", "bar" }, foobar);
     ASSERT_FALSE(unregisterFoobar == nullptr);
@@ -1322,11 +1322,11 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
     // Attempt to register /foo delegate.
     // This should not be allowed because it would overlap the /foo/bar delegate.
     const auto foo = [](
-        std::shared_ptr< Http::Request > request,
+        const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
-        return std::make_shared< Http::Response >();
+        return Http::Response();
     };
     auto unregisterFoo = server.RegisterResource({ "foo" }, foo);
     ASSERT_TRUE(unregisterFoo == nullptr);
@@ -1353,16 +1353,16 @@ TEST_F(ServerTests, ContentLengthSetByServer) {
     transport->connectionDelegate(connection);
     std::vector< Uri::Uri > requestsReceived;
     const auto resourceDelegate = [&requestsReceived](
-        std::shared_ptr< Http::Request > request,
+        const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
-        const auto response = std::make_shared< Http::Response >();
-        response->statusCode = 200;
-        response->reasonPhrase = "OK";
-        response->headers.SetHeader("Content-Type", "text/plain");
-        response->body = "Hello!";
-        requestsReceived.push_back(request->target);
+        Http::Response response;
+        response.statusCode = 200;
+        response.reasonPhrase = "OK";
+        response.headers.SetHeader("Content-Type", "text/plain");
+        response.body = "Hello!";
+        requestsReceived.push_back(request.target);
         return response;
     };
     const auto unregistrationDelegate = server.RegisterResource({ "foo" }, resourceDelegate);
@@ -1638,15 +1638,15 @@ TEST_F(ServerTests, UpgradeConnection) {
         &requestReceived,
         &dataReceivedAfterUpgrading
     ](
-        std::shared_ptr< Http::Request > request,
+        const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
         requestReceived = true;
-        const auto response = std::make_shared< Http::Response >();
-        response->statusCode = 101;
-        response->reasonPhrase = "Switching Protocols";
-        response->headers.SetHeader("Connection", "upgrade");
+        Http::Response response;
+        response.statusCode = 101;
+        response.reasonPhrase = "Switching Protocols";
+        response.headers.SetHeader("Connection", "upgrade");
         upgradedConnection = connection;
         dataReceivedAfterUpgrading = trailer;
         upgradedConnection->SetDataReceivedDelegate(
@@ -1738,15 +1738,15 @@ TEST_F(ServerTests, UpgradedConnectionsShouldNotBeTimedOutByServer) {
         &upgradedConnection,
         &requestReceived
     ](
-        std::shared_ptr< Http::Request > request,
+        const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
         requestReceived = true;
-        const auto response = std::make_shared< Http::Response >();
-        response->statusCode = 101;
-        response->reasonPhrase = "Switching Protocols";
-        response->headers.SetHeader("Connection", "upgrade");
+        Http::Response response;
+        response.statusCode = 101;
+        response.reasonPhrase = "Switching Protocols";
+        response.headers.SetHeader("Connection", "upgrade");
         upgradedConnection = connection;
         upgradedConnection->SetDataReceivedDelegate(
             [](std::vector< uint8_t > data){}

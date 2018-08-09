@@ -179,7 +179,7 @@ namespace {
      *     was successfully parsed is returned.
      */
     bool ParseRequestLine(
-        std::shared_ptr< Http::Request > request,
+        Http::Request& request,
         const std::string& requestLine
     ) {
         // Parse the method.
@@ -187,8 +187,8 @@ namespace {
         if (methodDelimiter == std::string::npos) {
             return false;
         }
-        request->method = requestLine.substr(0, methodDelimiter);
-        if (request->method.empty()) {
+        request.method = requestLine.substr(0, methodDelimiter);
+        if (request.method.empty()) {
             return false;
         }
 
@@ -199,7 +199,7 @@ namespace {
             return false;
         }
         if (
-            !request->target.ParseFromString(
+            !request.target.ParseFromString(
                 requestLine.substr(
                     methodDelimiter + 1,
                     targetLength
@@ -470,7 +470,7 @@ namespace Http {
                         response->statusCode = 408;
                         response->reasonPhrase = "Request Timeout";
                         response->headers.AddHeader("Connection", "close");
-                        IssueResponse(connectionState, response);
+                        IssueResponse(connectionState, *response);
                     }
                 }
                 (void)timerWakeCondition.wait_for(
@@ -505,7 +505,7 @@ namespace Http {
          *     are outside the scope of HTTP.
          */
         size_t ParseRequest(
-            std::shared_ptr< Request > request,
+            Request& request,
             const std::string& nextRawRequestPart
         ) {
             // Count the number of characters incorporated into
@@ -513,31 +513,31 @@ namespace Http {
             size_t messageEnd = 0;
 
             // First, extract and parse the request line.
-            if (request->state == Request::State::RequestLine) {
+            if (request.state == Request::State::RequestLine) {
                 const auto requestLineEnd = nextRawRequestPart.find(CRLF);
                 if (requestLineEnd == std::string::npos) {
                     if (nextRawRequestPart.length() > headerLineLimit) {
-                        request->state = Request::State::Error;
+                        request.state = Request::State::Error;
                         return messageEnd;
                     }
                     return messageEnd;
                 }
                 const auto requestLineLength = requestLineEnd;
                 if (requestLineLength > headerLineLimit) {
-                    request->state = Request::State::Error;
+                    request.state = Request::State::Error;
                     return messageEnd;
                 }
                 const auto requestLine = nextRawRequestPart.substr(0, requestLineLength);
                 messageEnd = requestLineEnd + CRLF.length();
-                request->state = Request::State::Headers;
-                request->valid = ParseRequestLine(request, requestLine);
+                request.state = Request::State::Headers;
+                request.valid = ParseRequestLine(request, requestLine);
             }
 
             // Second, parse the message headers and identify where the body begins.
-            if (request->state == Request::State::Headers) {
-                request->headers.SetLineLimit(headerLineLimit);
+            if (request.state == Request::State::Headers) {
+                request.headers.SetLineLimit(headerLineLimit);
                 size_t bodyOffset;
-                const auto headersState = request->headers.ParseRawMessage(
+                const auto headersState = request.headers.ParseRawMessage(
                     nextRawRequestPart.substr(messageEnd),
                     bodyOffset
                 );
@@ -545,19 +545,19 @@ namespace Http {
                 switch (headersState) {
                     case MessageHeaders::MessageHeaders::State::Complete: {
                         // Done with parsing headers; next will be body.
-                        if (!request->headers.IsValid()) {
-                            request->valid = false;
+                        if (!request.headers.IsValid()) {
+                            request.valid = false;
                         }
-                        request->state = Request::State::Body;
+                        request.state = Request::State::Body;
 
                         // Check for "Host" header.
-                        if (request->headers.HasHeader("Host")) {
-                            const auto requestHost = request->headers.GetHeaderValue("Host");
+                        if (request.headers.HasHeader("Host")) {
+                            const auto requestHost = request.headers.GetHeaderValue("Host");
                             auto serverHost = configuration["host"];
                             if (serverHost.empty()) {
                                 serverHost = requestHost;
                             }
-                            auto targetHost = request->target.GetHost();
+                            auto targetHost = request.target.GetHost();
                             if (targetHost.empty()) {
                                 targetHost = serverHost;
                             }
@@ -565,10 +565,10 @@ namespace Http {
                                 (requestHost != targetHost)
                                 || (requestHost != serverHost)
                             ) {
-                                request->valid = false;
+                                request.valid = false;
                             }
                         } else {
-                            request->valid = false;
+                            request.valid = false;
                         }
                     } break;
 
@@ -577,14 +577,14 @@ namespace Http {
 
                     case MessageHeaders::MessageHeaders::State::Error:
                     default: {
-                        request->state = Request::State::Error;
+                        request.state = Request::State::Error;
                         return messageEnd;
                     }
                 }
             }
 
             // Finally, extract the body.
-            if (request->state == Request::State::Body) {
+            if (request.state == Request::State::Body) {
                 // Check for "Content-Length" header.  If present, use this to
                 // determine how many characters should be in the body.
                 const auto bytesAvailableForBody = nextRawRequestPart.length() - messageEnd;
@@ -593,41 +593,41 @@ namespace Http {
                 // header, we carefully carve exactly that number of characters
                 // out (and bail if we don't have enough).  Otherwise, we just
                 // assume the body extends to the end of the raw message.
-                if (request->headers.HasHeader("Content-Length")) {
+                if (request.headers.HasHeader("Content-Length")) {
                     size_t contentLength;
                     switch (
                         ParseSize(
-                            request->headers.GetHeaderValue("Content-Length"),
+                            request.headers.GetHeaderValue("Content-Length"),
                             contentLength
                         )
                     ) {
                         case ParseSizeResult::NotANumber: {
-                            request->state = Request::State::Error;
+                            request.state = Request::State::Error;
                         } return messageEnd;
 
                         case ParseSizeResult::Overflow: {
-                            request->state = Request::State::Error;
-                            request->responseStatusCode = 413;
-                            request->responseReasonPhrase = "Payload Too Large";
+                            request.state = Request::State::Error;
+                            request.responseStatusCode = 413;
+                            request.responseReasonPhrase = "Payload Too Large";
                         } return messageEnd;
                     }
                     if (contentLength > MAX_CONTENT_LENGTH) {
-                        request->state = Request::State::Error;
-                        request->responseStatusCode = 413;
-                        request->responseReasonPhrase = "Payload Too Large";
+                        request.state = Request::State::Error;
+                        request.responseStatusCode = 413;
+                        request.responseReasonPhrase = "Payload Too Large";
                         return messageEnd;
                     }
                     if (contentLength > bytesAvailableForBody) {
-                        request->state = Request::State::Body;
+                        request.state = Request::State::Body;
                         return messageEnd;
                     } else {
-                        request->body = nextRawRequestPart.substr(messageEnd, contentLength);
+                        request.body = nextRawRequestPart.substr(messageEnd, contentLength);
                         messageEnd += contentLength;
-                        request->state = Request::State::Complete;
+                        request.state = Request::State::Complete;
                     }
                 } else {
-                    request->body.clear();
-                    request->state = Request::State::Complete;
+                    request.body.clear();
+                    request.state = Request::State::Complete;
                 }
             }
             return messageEnd;
@@ -649,20 +649,20 @@ namespace Http {
          *     reassembly buffer.
          */
         std::shared_ptr< Request > TryRequestAssembly(
-            std::shared_ptr< ConnectionState > connectionState
+            ConnectionState& connectionState
         ) {
             const auto charactersAccepted = ParseRequest(
-                connectionState->nextRequest,
-                connectionState->reassemblyBuffer
+                *connectionState.nextRequest,
+                connectionState.reassemblyBuffer
             );
-            connectionState->reassemblyBuffer.erase(
-                connectionState->reassemblyBuffer.begin(),
-                connectionState->reassemblyBuffer.begin() + charactersAccepted
+            connectionState.reassemblyBuffer.erase(
+                connectionState.reassemblyBuffer.begin(),
+                connectionState.reassemblyBuffer.begin() + charactersAccepted
             );
-            if (!connectionState->nextRequest->IsCompleteOrError()) {
+            if (!connectionState.nextRequest->IsCompleteOrError()) {
                 return nullptr;
             }
-            const auto request = connectionState->nextRequest;
+            const auto request = connectionState.nextRequest;
             StartNextRequest(connectionState);
             return request;
         }
@@ -675,13 +675,13 @@ namespace Http {
          *     the next client request.
          */
         void StartNextRequest(
-            std::shared_ptr< ConnectionState > connectionState
+            ConnectionState& connectionState
         ) {
-            connectionState->nextRequest = std::make_shared< Request >();
+            connectionState.nextRequest = std::make_shared< Request >();
             const auto now = timeKeeper->GetCurrentTime();
-            connectionState->requestInProgress = !connectionState->reassemblyBuffer.empty();
-            connectionState->timeLastDataReceived = now;
-            connectionState->timeLastRequestStarted = now;
+            connectionState.requestInProgress = !connectionState.reassemblyBuffer.empty();
+            connectionState.timeLastDataReceived = now;
+            connectionState.timeLastRequestStarted = now;
         }
 
         /**
@@ -696,19 +696,19 @@ namespace Http {
          */
         void IssueResponse(
             std::shared_ptr< ConnectionState > connectionState,
-            std::shared_ptr< Response > response
+            Response& response
         ) {
             if (
-                !response->headers.HasHeader("Transfer-Encoding")
-                && !response->body.empty()
-                && !response->headers.HasHeader("Content-Length")
+                !response.headers.HasHeader("Transfer-Encoding")
+                && !response.body.empty()
+                && !response.headers.HasHeader("Content-Length")
             ) {
-                response->headers.AddHeader(
+                response.headers.AddHeader(
                     "Content-Length",
-                    SystemAbstractions::sprintf("%zu", response->body.length())
+                    SystemAbstractions::sprintf("%zu", response.body.length())
                 );
             }
-            const auto responseText = response->Generate();
+            const auto responseText = response.Generate();
             connectionState->connection->SendData(
                 std::vector< uint8_t >(
                     responseText.begin(),
@@ -717,12 +717,12 @@ namespace Http {
             );
             diagnosticsSender.SendDiagnosticInformationFormatted(
                 1, "Sent %u '%s' response back to %s",
-                response->statusCode,
-                response->reasonPhrase.c_str(),
+                response.statusCode,
+                response.reasonPhrase.c_str(),
                 connectionState->connection->GetPeerId().c_str()
             );
             bool closeRequested = false;
-            for (const auto& connectionToken: response->headers.GetHeaderMultiValue("Connection")) {
+            for (const auto& connectionToken: response.headers.GetHeaderMultiValue("Connection")) {
                 if (connectionToken == "close") {
                     closeRequested = true;
                     break;
@@ -783,11 +783,11 @@ namespace Http {
             connectionState->timeLastDataReceived = now;
             connectionState->reassemblyBuffer += std::string(data.begin(), data.end());
             for (;;) {
-                const auto request = TryRequestAssembly(connectionState);
+                const auto request = TryRequestAssembly(*connectionState);
                 if (request == nullptr) {
                     break;
                 }
-                std::shared_ptr< Response > response;
+                Response response;
                 if (
                     (request->state == Request::State::Complete)
                     && request->valid
@@ -827,13 +827,12 @@ namespace Http {
                         && (resource->handler != nullptr)
                     ) {
                         request->target.SetPath({ resourcePath.begin(), resourcePath.end() });
-                        response = resource->handler(request, connectionState->connection, connectionState->reassemblyBuffer);
+                        response = resource->handler(*request, connectionState->connection, connectionState->reassemblyBuffer);
                     } else {
-                        response = std::make_shared< Response >();
-                        response->statusCode = 404;
-                        response->reasonPhrase = "Not Found";
-                        response->headers.SetHeader("Content-Type", "text/plain");
-                        response->body = "FeelsBadMan\r\n";
+                        response.statusCode = 404;
+                        response.reasonPhrase = "Not Found";
+                        response.headers.SetHeader("Content-Type", "text/plain");
+                        response.body = "FeelsBadMan\r\n";
                     }
                     const auto requestConnectionTokens = request->headers.GetHeaderMultiValue("Connection");
                     bool closeRequested = false;
@@ -844,7 +843,7 @@ namespace Http {
                         }
                     }
                     if (closeRequested) {
-                        auto responseConnectionTokens = response->headers.GetHeaderMultiValue("Connection");
+                        auto responseConnectionTokens = response.headers.GetHeaderMultiValue("Connection");
                         bool closeResponded = false;
                         for (const auto& connectionToken: responseConnectionTokens) {
                             if (connectionToken == "close") {
@@ -855,20 +854,19 @@ namespace Http {
                         if (!closeResponded) {
                             responseConnectionTokens.push_back("close");
                         }
-                        response->headers.SetHeader("Connection", responseConnectionTokens, true);
+                        response.headers.SetHeader("Connection", responseConnectionTokens, true);
                     }
                 } else {
-                    response = std::make_shared< Response >();
-                    response->statusCode = request->responseStatusCode;
-                    response->reasonPhrase = request->responseReasonPhrase;
-                    response->headers.SetHeader("Content-Type", "text/plain");
-                    response->body = "FeelsBadMan\r\n";
+                    response.statusCode = request->responseStatusCode;
+                    response.reasonPhrase = request->responseReasonPhrase;
+                    response.headers.SetHeader("Content-Type", "text/plain");
+                    response.body = "FeelsBadMan\r\n";
                     if (request->state == Request::State::Error) {
-                        response->headers.SetHeader("Connection", "close");
+                        response.headers.SetHeader("Connection", "close");
                     }
                 }
                 IssueResponse(connectionState, response);
-                if (response->statusCode == 101) {
+                if (response.statusCode == 101) {
                     connectionState->connection = nullptr;
                     (void)connectionsToDrop.insert(connectionState);
                     reaperWakeCondition.notify_all();
@@ -891,7 +889,7 @@ namespace Http {
                 connection->GetPeerId().c_str()
             );
             const auto connectionState = std::make_shared< ConnectionState >();
-            StartNextRequest(connectionState);
+            StartNextRequest(*connectionState);
             connectionState->connection = connection;
             (void)activeConnections.insert(connectionState);
             std::weak_ptr< ConnectionState > connectionStateWeak(connectionState);
@@ -993,7 +991,7 @@ namespace Http {
         size_t& messageEnd
     ) -> std::shared_ptr< Request > {
         auto request = std::make_shared< Request >();
-        messageEnd = impl_->ParseRequest(request, rawRequest);
+        messageEnd = impl_->ParseRequest(*request, rawRequest);
         if (request->IsCompleteOrError()) {
             return request;
         } else {
