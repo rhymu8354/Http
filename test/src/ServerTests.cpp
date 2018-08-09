@@ -73,7 +73,7 @@ namespace {
         std::condition_variable waitCondition;
 
         // Lifecycle management
-        ~MockConnection() {
+        ~MockConnection() noexcept {
             std::lock_guard< decltype(mutex) > lock(mutex);
             if (callingDelegate) {
                 *((int*)0) = 42; // force a crash (use in a death test)
@@ -83,9 +83,9 @@ namespace {
             }
         }
         MockConnection(const MockConnection&) = delete;
-        MockConnection(MockConnection&&) = delete;
+        MockConnection(MockConnection&&) noexcept = delete;
         MockConnection& operator=(const MockConnection&) = delete;
-        MockConnection& operator=(MockConnection&&) = delete;
+        MockConnection& operator=(MockConnection&&) noexcept = delete;
 
         // Methods
 

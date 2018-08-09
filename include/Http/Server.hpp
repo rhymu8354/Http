@@ -59,11 +59,11 @@ namespace Http {
 
         // Lifecycle management
     public:
-        ~Server();
+        ~Server() noexcept;
         Server(const Server&) = delete;
-        Server(Server&&) = delete;
+        Server(Server&&) noexcept = delete;
         Server& operator=(const Server&) = delete;
-        Server& operator=(Server&&) = delete;
+        Server& operator=(Server&&) noexcept = delete;
 
         // Public methods
     public:

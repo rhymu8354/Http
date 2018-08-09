@@ -28,11 +28,11 @@ namespace Http {
     class Client {
         // Lifecycle management
     public:
-        ~Client();
+        ~Client() noexcept;
         Client(const Client&) = delete;
-        Client(Client&&) = delete;
+        Client(Client&&) noexcept = delete;
         Client& operator=(const Client&) = delete;
-        Client& operator=(Client&&) = delete;
+        Client& operator=(Client&&) noexcept = delete;
 
         // Public methods
     public:
