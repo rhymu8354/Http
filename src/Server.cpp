@@ -31,8 +31,11 @@ namespace {
 
     /**
      * This is the maximum allowed request body size.
+     *
+     * Make sure this is never larger than the largest value
+     * for the size_t type.
      */
-    constexpr size_t MAX_CONTENT_LENGTH = 10000000;
+    constexpr intmax_t MAX_CONTENT_LENGTH = 10000000;
 
     /**
      * This is the default maximum length allowed for a request header line.
@@ -103,65 +106,6 @@ namespace {
          */
         std::weak_ptr< ResourceSpace > superspace;
     };
-
-    /**
-     * These are the different results that can be indicated
-     * when a string is parsed as a size integer.
-     */
-    enum class ParseSizeResult {
-        /**
-         * This indicates the size was parsed successfully.
-         */
-        Success,
-
-        /**
-         * This indicates the size had one or more characters
-         * that were not digits.
-         */
-        NotANumber,
-
-        /**
-         * This indicates the size exceeded the maximum representable
-         * size integer.
-         */
-        Overflow
-    };
-
-    /**
-     * This function parses the given string as a size
-     * integer, detecting invalid characters, overflow, etc.
-     *
-     * @param[in] numberString
-     *     This is the string containing the number to parse.
-     *
-     * @param[out] number
-     *     This is where to store the number parsed.
-     *
-     * @return
-     *     An indication of whether or not the number was parsed
-     *     successfully is returned.
-     */
-    ParseSizeResult ParseSize(
-        const std::string& numberString,
-        size_t& number
-    ) {
-        number = 0;
-        for (auto c: numberString) {
-            if (
-                (c < '0')
-                || (c > '9')
-            ) {
-                return ParseSizeResult::NotANumber;
-            }
-            const auto digit = (uint16_t)(c - '0');
-            if ((std::numeric_limits< size_t >::max() - digit) / 10 < number) {
-                return ParseSizeResult::Overflow;
-            }
-            number *= 10;
-            number += digit;
-        }
-        return ParseSizeResult::Success;
-    }
 
     /**
      * This method parses the method, target URI, and protocol identifier
@@ -594,29 +538,34 @@ namespace Http {
                 // out (and bail if we don't have enough).  Otherwise, we just
                 // assume the body extends to the end of the raw message.
                 if (request.headers.HasHeader("Content-Length")) {
-                    size_t contentLength;
+                    intmax_t contentLengthAsInt;
                     switch (
-                        ParseSize(
+                        SystemAbstractions::ToInteger(
                             request.headers.GetHeaderValue("Content-Length"),
-                            contentLength
+                            contentLengthAsInt
                         )
                     ) {
-                        case ParseSizeResult::NotANumber: {
+                        case SystemAbstractions::ToIntegerResult::NotANumber: {
                             request.state = Request::State::Error;
                         } return messageEnd;
 
-                        case ParseSizeResult::Overflow: {
+                        case SystemAbstractions::ToIntegerResult::Overflow: {
                             request.state = Request::State::Error;
                             request.responseStatusCode = 413;
                             request.responseReasonPhrase = "Payload Too Large";
                         } return messageEnd;
                     }
-                    if (contentLength > MAX_CONTENT_LENGTH) {
+                    if (contentLengthAsInt < 0) {
+                        request.state = Request::State::Error;
+                        return messageEnd;
+                    }
+                    if (contentLengthAsInt > MAX_CONTENT_LENGTH) {
                         request.state = Request::State::Error;
                         request.responseStatusCode = 413;
                         request.responseReasonPhrase = "Payload Too Large";
                         return messageEnd;
                     }
+                    const auto contentLength = (size_t)contentLengthAsInt;
                     if (contentLength > bytesAvailableForBody) {
                         request.state = Request::State::Body;
                         return messageEnd;

@@ -10,6 +10,7 @@
 #include <limits>
 #include <string>
 #include <sstream>
+#include <SystemAbstractions/StringExtensions.hpp>
 
 namespace {
 
@@ -19,42 +20,6 @@ namespace {
      * line of an HTTP response.
      */
     const std::string CRLF("\r\n");
-
-    /**
-     * This function parses the given string as a size
-     * integer, detecting invalid characters, overflow, etc.
-     *
-     * @param[in] numberString
-     *     This is the string containing the number to parse.
-     *
-     * @param[out] number
-     *     This is where to store the number parsed.
-     *
-     * @return
-     *     An indication of whether or not the number was parsed
-     *     successfully is returned.
-     */
-    bool ParseSize(
-        const std::string& numberString,
-        size_t& number
-    ) {
-        number = 0;
-        for (auto c: numberString) {
-            if (
-                (c < '0')
-                || (c > '9')
-            ) {
-                return false;
-            }
-            const auto digit = (uint16_t)(c - '0');
-            if ((std::numeric_limits< size_t >::max() - digit) / 10 < number) {
-                return false;
-            }
-            number *= 10;
-            number += digit;
-        }
-        return true;
-    }
 
     /**
      * This method parses the protocol identifier, status code,
@@ -87,22 +52,22 @@ namespace {
 
         // Parse the status code.
         const auto statusCodeDelimiter = statusLine.find(' ', protocolDelimiter + 1);
-        size_t statusCodeAsSize;
+        intmax_t statusCodeAsInt;
         if (
-            !ParseSize(
+            SystemAbstractions::ToInteger(
                 statusLine.substr(
                     protocolDelimiter + 1,
                     statusCodeDelimiter - protocolDelimiter - 1
                 ),
-                statusCodeAsSize
-            )
+                statusCodeAsInt
+            ) != SystemAbstractions::ToIntegerResult::Success
         ) {
             return false;
         }
-        if (statusCodeAsSize > 999) {
+        if (statusCodeAsInt > 999) {
             return false;
         } else {
-            response.statusCode = (unsigned int)statusCodeAsSize;
+            response.statusCode = (unsigned int)statusCodeAsInt;
         }
 
         // Parse the reason phrase.
@@ -177,13 +142,21 @@ namespace Http {
         // out (and bail if we don't have enough).  Otherwise, we just
         // assume the body extends to the end of the raw message.
         if (response->headers.HasHeader("Content-Length")) {
-            size_t contentLength;
-            if (!ParseSize(response->headers.GetHeaderValue("Content-Length"), contentLength)) {
+            intmax_t contentLengthAsInt;
+            if (
+                SystemAbstractions::ToInteger(
+                    response->headers.GetHeaderValue("Content-Length"),
+                    contentLengthAsInt
+                ) != SystemAbstractions::ToIntegerResult::Success
+            ) {
                 return nullptr;
             }
-            if (contentLength > maxContentLength) {
+            if (contentLengthAsInt < 0) {
+                return nullptr;
+            } else if (contentLengthAsInt > (intmax_t)maxContentLength) {
                 return nullptr;
             } else {
+                const auto contentLength = (size_t)contentLengthAsInt;
                 response->body = rawResponse.substr(bodyOffset, contentLength);
                 messageEnd = bodyOffset + contentLength;
             }
