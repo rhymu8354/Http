@@ -11,6 +11,7 @@
 
 #include "Request.hpp"
 #include "Response.hpp"
+#include "TimeKeeper.hpp"
 
 #include <functional>
 #include <Http/Client.hpp>
@@ -143,6 +144,15 @@ namespace Http {
             const std::vector< std::string >& resourceSubspacePath,
             ResourceDelegate resourceDelegate
         ) = 0;
+
+        /**
+         * This returns the object responsible for tracking web server time.
+         *
+         * @return
+         *     The object responsible for tracking web server time
+         *     is returned.
+         */
+        virtual std::shared_ptr< TimeKeeper > GetTimeKeeper() = 0;
     };
 
 }

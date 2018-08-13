@@ -155,6 +155,7 @@ namespace Http {
             const std::vector< std::string >& resourceSubspacePath,
             ResourceDelegate resourceDelegate
         ) override;
+        virtual std::shared_ptr< TimeKeeper > GetTimeKeeper() override;
 
         // Private properties
     private:

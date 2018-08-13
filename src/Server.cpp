@@ -1117,4 +1117,8 @@ namespace Http {
         }
     }
 
+    std::shared_ptr< TimeKeeper > Server::GetTimeKeeper() {
+        return impl_->timeKeeper;
+    }
+
 }
