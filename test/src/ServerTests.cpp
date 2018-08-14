@@ -42,7 +42,7 @@ namespace {
         /**
          * This is used to synchronize access to the wait condition.
          */
-        std::mutex mutex;
+        std::recursive_mutex mutex;
 
         /**
          * This is the delegate to call whenever data is recevied
@@ -70,7 +70,7 @@ namespace {
          * This is used to wait for, or signal, a condition
          * upon which that the tests might be waiting.
          */
-        std::condition_variable waitCondition;
+        std::condition_variable_any waitCondition;
 
         // Lifecycle management
         ~MockConnection() noexcept {

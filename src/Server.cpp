@@ -205,6 +205,12 @@ namespace {
          * accepting requests from the client.
          */
         bool acceptingRequests = true;
+
+        /**
+         * This flag indicates whether or not the server has closed
+         * its end of the connection.
+         */
+        bool closed = false;
     };
 
 }
@@ -318,13 +324,13 @@ namespace Http {
         /**
          * This is used to synchronize access to the server.
          */
-        std::mutex mutex;
+        std::recursive_mutex mutex;
 
         /**
          * This is used by the reaper thread to wait on any
          * condition that it should cause it to wake up.
          */
-        std::condition_variable reaperWakeCondition;
+        std::condition_variable_any reaperWakeCondition;
 
         /**
          * This is a worker thread whose sole job is to monitor
@@ -347,7 +353,7 @@ namespace Http {
          * This is used by the timer thread to wait on any
          * condition that it should cause it to wake up.
          */
-        std::condition_variable timerWakeCondition;
+        std::condition_variable_any timerWakeCondition;
 
         // Methods
 
@@ -679,10 +685,12 @@ namespace Http {
             }
             if (closeRequested) {
                 connectionState->acceptingRequests = false;
+                connectionState->closed = true;
                 connectionState->connection->Break(true);
                 OnConnectionBroken(
                     connectionState,
-                    "closed by server"
+                    "closed by server",
+                    true
                 );
             }
         }
@@ -696,19 +704,27 @@ namespace Http {
          *
          * @param[in] reason
          *     This describes how the connection was broken.
+         *
+         * @param[in] closeOurEnd
+         *     This flag indicates whether or not the server
+         *     should close its end of the connection.
          */
         void OnConnectionBroken(
             std::shared_ptr< ConnectionState > connectionState,
-            const std::string& reason
+            const std::string& reason,
+            bool closeOurEnd
         ) {
             diagnosticsSender.SendDiagnosticInformationFormatted(
                 2, "Connection to %s %s",
                 connectionState->connection->GetPeerId().c_str(),
                 reason.c_str()
             );
-            (void)connectionsToDrop.insert(connectionState);
-            reaperWakeCondition.notify_all();
-            (void)activeConnections.erase(connectionState);
+            if (closeOurEnd) {
+                connectionState->connection->Break(false);
+                (void)connectionsToDrop.insert(connectionState);
+                reaperWakeCondition.notify_all();
+                (void)activeConnections.erase(connectionState);
+            }
         }
 
         /**
@@ -859,10 +875,19 @@ namespace Http {
                     if (connectionState == nullptr) {
                         return;
                     }
-                    OnConnectionBroken(
-                        connectionState,
-                        "broken by peer"
-                    );
+                    if (connectionState->closed) {
+                        OnConnectionBroken(
+                            connectionState,
+                            "peer end closed",
+                            false
+                        );
+                    } else {
+                        OnConnectionBroken(
+                            connectionState,
+                            "broken by peer",
+                            true
+                        );
+                    }
                 }
             );
         }
