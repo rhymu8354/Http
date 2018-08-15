@@ -37,8 +37,13 @@ namespace Http {
         /**
          * This is the type of delegate used to notify the user that
          * the connection has been broken.
+         *
+         * @param[in] graceful
+         *     This indicates whether or not the peer of connection
+         *     has closed the connection gracefully (meaning we can
+         *     continue to send our data back to the peer).
          */
-        typedef std::function< void() > BrokenDelegate;
+        typedef std::function< void(bool graceful) > BrokenDelegate;
 
         // Methods
 

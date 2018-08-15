@@ -845,7 +845,7 @@ TEST_F(ServerTests, ClientConnectionBroken) {
     transport->connectionDelegate(connection);
     ASSERT_FALSE(connection->brokenDelegate == nullptr);
     diagnosticMessages.clear();
-    connection->brokenDelegate();
+    connection->brokenDelegate(false);
     ASSERT_EQ(
         (std::vector< std::string >{
             "Http::Server[2]: Connection to mock-client broken by peer",
@@ -869,7 +869,7 @@ TEST_F(ServerTests, ClientShouldNotBeReleasedDuringBreakDelegateCall) {
     {
         std::lock_guard< decltype(connectionRaw->mutex) > lock(connectionRaw->mutex);
         connectionRaw->callingDelegate = true;
-        connectionRaw->brokenDelegate();
+        connectionRaw->brokenDelegate(false);
         connectionRaw->callingDelegate = false;
     }
 }
@@ -1658,7 +1658,7 @@ TEST_F(ServerTests, UpgradeConnection) {
             }
         );
         upgradedConnection->SetBrokenDelegate(
-            []{}
+            [](bool){}
         );
         return response;
     };
@@ -1752,7 +1752,7 @@ TEST_F(ServerTests, UpgradedConnectionsShouldNotBeTimedOutByServer) {
             [](std::vector< uint8_t > data){}
         );
         upgradedConnection->SetBrokenDelegate(
-            []{}
+            [](bool){}
         );
         return response;
     };

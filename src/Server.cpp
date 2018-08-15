@@ -869,7 +869,7 @@ namespace Http {
                 }
             );
             connection->SetBrokenDelegate(
-                [this, connectionStateWeak]{
+                [this, connectionStateWeak](bool){
                     std::lock_guard< decltype(mutex) > lock(mutex);
                     const auto connectionState = connectionStateWeak.lock();
                     if (connectionState == nullptr) {
