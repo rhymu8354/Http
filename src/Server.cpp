@@ -846,8 +846,12 @@ namespace Http {
          *
          * @param[in] connection
          *     This is the new connection has been established for the server.
+         *
+         * @return
+         *     A delegate to be called when the connection is ready to be used
+         *     is returned.
          */
-        void NewConnection(std::shared_ptr< Connection > connection) {
+        ServerTransport::ConnectionReadyDelegate NewConnection(std::shared_ptr< Connection > connection) {
             std::lock_guard< decltype(mutex) > lock(mutex);
             diagnosticsSender.SendDiagnosticInformationFormatted(
                 2, "New connection from %s",
@@ -890,6 +894,7 @@ namespace Http {
                     }
                 }
             );
+            return nullptr;
         }
     };
 
@@ -920,7 +925,7 @@ namespace Http {
             impl_->transport->BindNetwork(
                 impl_->port,
                 [this](std::shared_ptr< Connection > connection){
-                    impl_->NewConnection(connection);
+                    return impl_->NewConnection(connection);
                 }
             )
         ) {

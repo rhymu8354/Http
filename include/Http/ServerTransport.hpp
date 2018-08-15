@@ -27,13 +27,30 @@ namespace Http {
         // Types
 
         /**
+         * This is the type of delegate the user may provide in order to
+         * be told when a connection is fully wired up and ready to be
+         * used by the user.
+         */
+        typedef std::function< void() > ConnectionReadyDelegate;
+
+        /**
          * This is the type of delegate used to notify the user that
          * a new connection has been established for the server.
          *
          * @param[in] connection
          *     This is the new connection has been established for the server.
+         *
+         * @return
+         *     An optional delegate that the transport layer should call when the
+         *     connection is ready to be used is returned.
+         *
+         * @retval nullptr
+         *     This is returned if the user doesn't care to be told
+         *     when the connection is ready to be used.
          */
-        typedef std::function< void(std::shared_ptr< Connection > connection) > NewConnectionDelegate;
+        typedef std::function<
+            ConnectionReadyDelegate(std::shared_ptr< Connection > connection)
+        > NewConnectionDelegate;
 
         // Methods
 
