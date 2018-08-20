@@ -67,6 +67,12 @@ namespace {
         bool broken = false;
 
         /**
+         * This flag indicates whether or not the remote peer broke
+         * the connection gracefully.
+         */
+        bool brokenGracefully = false;
+
+        /**
          * This is used to wait for, or signal, a condition
          * upon which that the tests might be waiting.
          */
@@ -130,8 +136,12 @@ namespace {
 
         // Http::Connection
 
-        virtual std::string GetPeerId() override {
+        virtual std::string GetPeerAddress() override {
             return "mock-client";
+        }
+
+        virtual std::string GetPeerId() override {
+            return "mock-client:5555";
         }
 
         virtual void SetDataReceivedDelegate(DataReceivedDelegate newDataReceivedDelegate) override {
@@ -155,6 +165,7 @@ namespace {
         virtual void Break(bool clean) override {
             std::lock_guard< decltype(mutex) > lock(mutex);
             broken = true;
+            brokenGracefully = clean;
             waitCondition.notify_all();
         }
     };
@@ -599,7 +610,7 @@ TEST_F(ServerTests, ClientRequestInOnePiece) {
     transport->connectionDelegate(connection);
     ASSERT_EQ(
         (std::vector< std::string >{
-            "Http::Server[2]: New connection from mock-client",
+            "Http::Server[2]: New connection from mock-client:5555",
         }),
         diagnosticMessages
     );
@@ -732,58 +743,7 @@ TEST_F(ServerTests, TwoClientRequestsInOnePiece) {
     );
 }
 
-TEST_F(ServerTests, ClientInvalidRequestRecoverable) {
-    auto transport = std::make_shared< MockTransport >();
-    Http::Server::MobilizationDependencies deps;
-    deps.transport = transport;
-    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
-    server.SetConfigurationItem("Port", "1234");
-    (void)server.Mobilize(deps);
-    auto connection = std::make_shared< MockConnection >();
-    transport->connectionDelegate(connection);
-    ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
-    const std::string requests = (
-        "GET /hello.txt HTTP/1.1\r\n"
-        "User-Agent curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
-        "Host: www.example.com\r\n"
-        "Accept-Language: en, mi\r\n"
-        "\r\n"
-        "GET /hello.txt HTTP/1.1\r\n"
-        "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
-        "Host: www.example.com\r\n"
-        "Accept-Language: en, mi\r\n"
-        "\r\n"
-    );
-    ASSERT_TRUE(connection->dataReceived.empty());
-    connection->dataReceivedDelegate(
-        std::vector< uint8_t >(
-            requests.begin(),
-            requests.end()
-        )
-    );
-    const std::string expectedResponses = (
-        "HTTP/1.1 400 Bad Request\r\n"
-        "Content-Type: text/plain\r\n"
-        "Content-Length: 13\r\n"
-        "\r\n"
-        "FeelsBadMan\r\n"
-        "HTTP/1.1 404 Not Found\r\n"
-        "Content-Type: text/plain\r\n"
-        "Content-Length: 13\r\n"
-        "\r\n"
-        "FeelsBadMan\r\n"
-    );
-    ASSERT_EQ(
-        expectedResponses,
-        std::string(
-            connection->dataReceived.begin(),
-            connection->dataReceived.end()
-        )
-    );
-    ASSERT_FALSE(connection->broken);
-}
-
-TEST_F(ServerTests, ClientInvalidRequestUnrecoverable) {
+TEST_F(ServerTests, ClientInvalidRequest) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
@@ -840,7 +800,7 @@ TEST_F(ServerTests, ClientConnectionBroken) {
     connection->brokenDelegate(false);
     ASSERT_EQ(
         (std::vector< std::string >{
-            "Http::Server[2]: Connection to mock-client broken by peer",
+            "Http::Server[2]: Connection to mock-client:5555 broken by peer",
         }),
         diagnosticMessages
     );
@@ -1066,10 +1026,11 @@ TEST_F(ServerTests, HostNotMatchingServerUri) {
         ASSERT_FALSE(response == nullptr);
         if (testVector.badRequestStatusExpected) {
             EXPECT_EQ(400, response->statusCode) << "Failed for test vector index " << index;
+            ASSERT_TRUE(connection->broken) << "Failed for test vector index " << index;
         } else {
             EXPECT_NE(400, response->statusCode) << "Failed for test vector index " << index;
+            ASSERT_FALSE(connection->broken) << "Failed for test vector index " << index;
         }
-        ASSERT_FALSE(connection->broken) << "Failed for test vector index " << index;
         server.Demobilize();
         ++index;
     }
@@ -1414,6 +1375,7 @@ TEST_F(ServerTests, ClientSentRequestWithTooLargePayloadOverflowingContentLength
     EXPECT_EQ("Payload Too Large", response->reasonPhrase);
     EXPECT_TRUE(response->headers.HasHeaderToken("Connection", "close"));
     EXPECT_TRUE(connection->broken);
+    EXPECT_TRUE(connection->brokenGracefully);
 }
 
 TEST_F(ServerTests, ClientSentRequestWithTooLargePayloadNotOverflowingContentLength) {
@@ -1451,6 +1413,7 @@ TEST_F(ServerTests, ClientSentRequestWithTooLargePayloadNotOverflowingContentLen
     EXPECT_EQ("Payload Too Large", response->reasonPhrase);
     EXPECT_TRUE(response->headers.HasHeaderToken("Connection", "close"));
     EXPECT_TRUE(connection->broken);
+    EXPECT_TRUE(connection->brokenGracefully);
 }
 
 TEST_F(ServerTests, InactivityTimeout) {
@@ -1834,7 +1797,7 @@ TEST_F(ServerTests, GoodRequestDiagnosticMessage) {
     );
     ASSERT_EQ(
         (std::vector< std::string >{
-            "Http::Server[1]: Request: GET '/foo/bar' (0) from mock-client: 200 (text/plain:6)",
+            "Http::Server[1]: Request: GET '/foo/bar' (0) from mock-client:5555: 200 (text/plain:6)",
         }),
         diagnosticMessages
     );
@@ -1864,7 +1827,7 @@ TEST_F(ServerTests, GoodRequestDiagnosticMessage) {
     );
     ASSERT_EQ(
         (std::vector< std::string >{
-            "Http::Server[1]: Request: POST '/foo/spam' (text/plain:8) from mock-client: 200 (text/plain:6)",
+            "Http::Server[1]: Request: POST '/foo/spam' (text/plain:8) from mock-client:5555: 200 (text/plain:6)",
         }),
         diagnosticMessages
     );
@@ -1891,7 +1854,7 @@ TEST_F(ServerTests, GoodRequestDiagnosticMessage) {
     );
     ASSERT_EQ(
         (std::vector< std::string >{
-            "Http::Server[1]: Request: GET '/nowhere' (0) from mock-client: 404 (text/plain:13)",
+            "Http::Server[1]: Request: GET '/nowhere' (0) from mock-client:5555: 404 (text/plain:13)",
         }),
         diagnosticMessages
     );
@@ -1924,6 +1887,39 @@ TEST_F(ServerTests, BadRequestDiagnosticMessage) {
             request.end()
         )
     );
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[1]: Request: Bad request from mock-client:5555: Pog\\x00Champ\\x20",
+            "Http::Server[2]: Connection to mock-client:5555 closed by server",
+        }),
+        diagnosticMessages
+    );
+}
+
+TEST_F(ServerTests, BadRequestResultsInBan) {
+    // Set up server.
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
+    (void)server.Mobilize(deps);
+
+    // Start a new mock connection.
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Issue a bad request.
+    const std::string request(
+        "Pog\0Champ This is a baaaaaaad request!\r\n\r\n",
+        42
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
     Http::Client client;
     auto response = client.ParseResponse(
         std::string(
@@ -1931,10 +1927,17 @@ TEST_F(ServerTests, BadRequestDiagnosticMessage) {
             connection->dataReceived.end()
         )
     );
-    ASSERT_EQ(
-        (std::vector< std::string >{
-            "Http::Server[1]: Request: Bad request from mock-client: Pog\\x00Champ\\x20",
-        }),
-        diagnosticMessages
-    );
+    ASSERT_FALSE(response == nullptr);
+    EXPECT_EQ(400, response->statusCode);
+    EXPECT_TRUE(connection->broken);
+    EXPECT_TRUE(connection->brokenGracefully);
+
+    // Start a second mock connection.
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Issue another bad request.
+    EXPECT_TRUE(connection->dataReceivedDelegate == nullptr);
+    EXPECT_TRUE(connection->broken);
+    EXPECT_FALSE(connection->brokenGracefully);
 }

@@ -48,6 +48,18 @@ namespace Http {
         // Methods
 
         /**
+         * This method returns a string that identifies the network
+         * address of the endpoint hosting the peer of this connection
+         * in the context of the transport.
+         *
+         * @return
+         *     A string that identifies the network address of the endpoint
+         *     hosting the peer of this connection in the context
+         *     of the transport is returned.
+         */
+        virtual std::string GetPeerAddress() = 0;
+
+        /**
          * This method returns a string that uniquely identifies
          * the peer of this connection in the context of the transport.
          *

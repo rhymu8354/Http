@@ -86,6 +86,15 @@ namespace {
     constexpr unsigned int TIMER_POLLING_PERIOD_MILLISECONDS = 50;
 
     /**
+     * This is used to indicate how to handle the server's end
+     * of a connection.
+     */
+    enum class ServerConnectionEndHandling {
+        CloseGracefully,
+        CloseAbruptly
+    };
+
+    /**
      * This is used to record what resources are currently supported
      * by the server, and through which handler delegates.
      */
@@ -305,6 +314,12 @@ namespace Http {
         std::shared_ptr< TimeKeeper > timeKeeper;
 
         /**
+         * These are the names of peers that have been banned
+         * from the server.
+         */
+        std::set< std::string > bannedPeers;
+
+        /**
          * These are the currently active client connections.
          */
         std::set< std::shared_ptr< ConnectionState > > activeConnections;
@@ -425,6 +440,9 @@ namespace Http {
                 const auto now = timeKeeper->GetCurrentTime();
                 auto connections = activeConnections;
                 for (const auto& connectionState: connections) {
+                    if (connectionState->closed) {
+                        continue;
+                    }
                     bool timeout = false;
                     if (connectionState->requestInProgress) {
                         if (
@@ -705,10 +723,15 @@ namespace Http {
                 );
             }
             bool closeRequested = false;
-            for (const auto& connectionToken: response.headers.GetHeaderMultiValue("Connection")) {
-                if (connectionToken == "close") {
-                    closeRequested = true;
-                    break;
+            if (response.statusCode == 400) {
+                closeRequested = true;
+                (void)bannedPeers.insert(connectionState->connection->GetPeerAddress());
+            } else {
+                for (const auto& connectionToken: response.headers.GetHeaderMultiValue("Connection")) {
+                    if (connectionToken == "close") {
+                        closeRequested = true;
+                        break;
+                    }
                 }
             }
             if (closeRequested) {
@@ -718,7 +741,7 @@ namespace Http {
                 OnConnectionBroken(
                     connectionState,
                     "closed by server",
-                    true
+                    ServerConnectionEndHandling::CloseGracefully
                 );
             }
         }
@@ -733,25 +756,31 @@ namespace Http {
          * @param[in] reason
          *     This describes how the connection was broken.
          *
-         * @param[in] closeOurEnd
-         *     This flag indicates whether or not the server
-         *     should close its end of the connection.
+         * @param[in] serverConnectionEndHandling
+         *     This indicates how the server should handle the closing
+         *     of its end of the connection.
          */
         void OnConnectionBroken(
             std::shared_ptr< ConnectionState > connectionState,
             const std::string& reason,
-            bool closeOurEnd
+            ServerConnectionEndHandling serverConnectionEndHandling
         ) {
             diagnosticsSender.SendDiagnosticInformationFormatted(
                 2, "Connection to %s %s",
                 connectionState->connection->GetPeerId().c_str(),
                 reason.c_str()
             );
-            if (closeOurEnd) {
-                connectionState->connection->Break(false);
-                (void)connectionsToDrop.insert(connectionState);
-                reaperWakeCondition.notify_all();
-                (void)activeConnections.erase(connectionState);
+            switch (serverConnectionEndHandling) {
+                case ServerConnectionEndHandling::CloseGracefully: {
+                    connectionState->connection->Break(true);
+                } break;
+
+                case ServerConnectionEndHandling::CloseAbruptly: {
+                    connectionState->connection->Break(false);
+                    (void)connectionsToDrop.insert(connectionState);
+                    reaperWakeCondition.notify_all();
+                    (void)activeConnections.erase(connectionState);
+                } break;
             }
         }
 
@@ -942,6 +971,15 @@ namespace Http {
          */
         ServerTransport::ConnectionReadyDelegate NewConnection(std::shared_ptr< Connection > connection) {
             std::lock_guard< decltype(mutex) > lock(mutex);
+            const auto bannedPeersEntry = bannedPeers.find(connection->GetPeerAddress());
+            if (bannedPeersEntry != bannedPeers.end()) {
+                diagnosticsSender.SendDiagnosticInformationFormatted(
+                    2, "New connection from %s -- banned",
+                    connection->GetPeerId().c_str()
+                );
+                connection->Break(false);
+                return nullptr;
+            }
             diagnosticsSender.SendDiagnosticInformationFormatted(
                 2, "New connection from %s",
                 connection->GetPeerId().c_str()
@@ -972,13 +1010,13 @@ namespace Http {
                         OnConnectionBroken(
                             connectionState,
                             "peer end closed",
-                            false
+                            ServerConnectionEndHandling::CloseAbruptly
                         );
                     } else {
                         OnConnectionBroken(
                             connectionState,
                             "broken by peer",
-                            true
+                            ServerConnectionEndHandling::CloseAbruptly
                         );
                     }
                 }
