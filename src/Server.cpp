@@ -6,14 +6,17 @@
  * © 2018 by Richard Walters
  */
 
+#include <algorithm>
 #include <condition_variable>
 #include <deque>
 #include <Http/Server.hpp>
 #include <inttypes.h>
+#include <iomanip>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <set>
+#include <sstream>
 #include <stddef.h>
 #include <stdio.h>
 #include <string>
@@ -41,6 +44,12 @@ namespace {
      * This is the default maximum length allowed for a request header line.
      */
     constexpr size_t DEFAULT_HEADER_LINE_LIMIT = 1000;
+
+    /**
+     * This is the default number of bytes of every bad request to
+     * be reported in diagnostic messages.
+     */
+    constexpr size_t DEFAULT_BAD_REQUEST_REPORT_BYTES = 100;
 
     /**
      * This is the default public port number to which clients may connect
@@ -195,6 +204,12 @@ namespace {
         std::string reassemblyBuffer;
 
         /**
+         * This holds the beginning of the current request, used to
+         * report the bytes received for a bad request.
+         */
+        std::vector< uint8_t > requestExtract;
+
+        /**
          * This is the state of the next request, while it's still
          * being received and parsed.
          */
@@ -239,6 +254,12 @@ namespace Http {
          * of an HTTP request.
          */
         size_t headerLineLimit = DEFAULT_HEADER_LINE_LIMIT;
+
+        /**
+         * This is the number of bytes of every bad request to
+         * be reported in diagnostic messages.
+         */
+        size_t badRequestReportBytes = DEFAULT_BAD_REQUEST_REPORT_BYTES;
 
         /**
          * This is the public port number to which clients may connect
@@ -420,7 +441,7 @@ namespace Http {
                         response->statusCode = 408;
                         response->reasonPhrase = "Request Timeout";
                         response->headers.AddHeader("Connection", "close");
-                        IssueResponse(connectionState, *response);
+                        IssueResponse(connectionState, *response, true);
                     }
                 }
                 (void)timerWakeCondition.wait_for(
@@ -648,10 +669,15 @@ namespace Http {
          *
          * @param[in] response
          *     This is the response to send back to the client.
+         *
+         * @param[in] emitDiagnosticMessage
+         *     This flag indicates whether or not to publish a diagnostic
+         *     message about this response being issued.
          */
         void IssueResponse(
             std::shared_ptr< ConnectionState > connectionState,
-            Response& response
+            Response& response,
+            bool emitDiagnosticMessage
         ) {
             if (
                 !response.headers.HasHeader("Transfer-Encoding")
@@ -670,12 +696,14 @@ namespace Http {
                     responseText.end()
                 )
             );
-            diagnosticsSender.SendDiagnosticInformationFormatted(
-                1, "Sent %u '%s' response back to %s",
-                response.statusCode,
-                response.reasonPhrase.c_str(),
-                connectionState->connection->GetPeerId().c_str()
-            );
+            if (emitDiagnosticMessage) {
+                diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1, "Sent %u '%s' response back to %s",
+                    response.statusCode,
+                    response.reasonPhrase.c_str(),
+                    connectionState->connection->GetPeerId().c_str()
+                );
+            }
             bool closeRequested = false;
             for (const auto& connectionToken: response.headers.GetHeaderMultiValue("Connection")) {
                 if (connectionToken == "close") {
@@ -747,6 +775,16 @@ namespace Http {
             connectionState->requestInProgress = true;
             connectionState->timeLastDataReceived = now;
             connectionState->reassemblyBuffer += std::string(data.begin(), data.end());
+            if (connectionState->requestExtract.size() < badRequestReportBytes) {
+                connectionState->requestExtract.insert(
+                    connectionState->requestExtract.end(),
+                    data.begin(),
+                    data.begin() + std::min(
+                        data.size(),
+                        badRequestReportBytes - connectionState->requestExtract.size()
+                    )
+                );
+            }
             for (;;) {
                 const auto request = TryRequestAssembly(*connectionState);
                 if (request == nullptr) {
@@ -757,12 +795,7 @@ namespace Http {
                     (request->state == Request::State::Complete)
                     && request->valid
                 ) {
-                    diagnosticsSender.SendDiagnosticInformationFormatted(
-                        1, "Received %s request for '%s' from %s",
-                        request->method.c_str(),
-                        request->target.GenerateString().c_str(),
-                        connectionState->connection->GetPeerId().c_str()
-                    );
+                    const auto originalTargetAsString = request->target.GenerateString();
                     const auto originalResourcePath = request->target.GetPath();
                     std::deque< std::string > resourcePath(
                         originalResourcePath.begin(),
@@ -821,6 +854,37 @@ namespace Http {
                         }
                         response.headers.SetHeader("Connection", responseConnectionTokens, true);
                     }
+                    diagnosticsSender.SendDiagnosticInformationFormatted(
+                        1, "Request: %s '%s' (%s) from %s: %u (%s)",
+                        request->method.c_str(),
+                        originalTargetAsString.c_str(),
+                        (
+                            request->headers.HasHeader("Content-Type")
+                            ? SystemAbstractions::sprintf(
+                                "%s:%zu",
+                                request->headers.GetHeaderValue("Content-Type").c_str(),
+                                request->body.length()
+                            ).c_str()
+                            : SystemAbstractions::sprintf(
+                                "%zu",
+                                request->body.length()
+                            ).c_str()
+                        ),
+                        connectionState->connection->GetPeerId().c_str(),
+                        response.statusCode,
+                        (
+                            response.headers.HasHeader("Content-Type")
+                            ? SystemAbstractions::sprintf(
+                                "%s:%zu",
+                                response.headers.GetHeaderValue("Content-Type").c_str(),
+                                response.body.length()
+                            ).c_str()
+                            : SystemAbstractions::sprintf(
+                                "%zu",
+                                response.body.length()
+                            ).c_str()
+                        )
+                    );
                 } else {
                     response.statusCode = request->responseStatusCode;
                     response.reasonPhrase = request->responseReasonPhrase;
@@ -829,8 +893,33 @@ namespace Http {
                     if (request->state == Request::State::Error) {
                         response.headers.SetHeader("Connection", "close");
                     }
+                    std::ostringstream requestExtractStringBuilder;
+                    requestExtractStringBuilder << std::hex << std::setfill('0');
+                    for (auto ch: connectionState->requestExtract) {
+                        if ((ch <= 0x20) || (ch > 0x7E)) {
+                            requestExtractStringBuilder << "\\x" << std::setw(2) << (int)ch;
+                        } else {
+                            requestExtractStringBuilder << (char)ch;
+                        }
+                    }
+                    diagnosticsSender.SendDiagnosticInformationFormatted(
+                        1, "Request: Bad request from %s: %s",
+                        connectionState->connection->GetPeerId().c_str(),
+                        requestExtractStringBuilder.str().c_str()
+                    );
                 }
-                IssueResponse(connectionState, response);
+                if (connectionState->reassemblyBuffer.empty()) {
+                    connectionState->requestExtract.clear();
+                } else {
+                    connectionState->requestExtract.assign(
+                        connectionState->reassemblyBuffer.begin(),
+                        connectionState->reassemblyBuffer.begin() + std::min(
+                            connectionState->reassemblyBuffer.size(),
+                            badRequestReportBytes
+                        )
+                    );
+                }
+                IssueResponse(connectionState, response, false);
                 if (response.statusCode == 101) {
                     connectionState->connection = nullptr;
                     (void)connectionsToDrop.insert(connectionState);
@@ -1092,6 +1181,25 @@ namespace Http {
                         newIdleTimeout
                     );
                     impl_->idleTimeout = newIdleTimeout;
+                }
+            }
+        } else if (key == "BadRequestReportBytes") {
+            size_t newBadRequestReportBytes;
+            if (
+                sscanf(
+                    value.c_str(),
+                    "%zu",
+                    &newBadRequestReportBytes
+                ) == 1
+            ) {
+                if (impl_->badRequestReportBytes != newBadRequestReportBytes) {
+                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Bad request report bytes changed from %zu to %zu",
+                        impl_->badRequestReportBytes,
+                        newBadRequestReportBytes
+                    );
+                    impl_->badRequestReportBytes = newBadRequestReportBytes;
                 }
             }
         }

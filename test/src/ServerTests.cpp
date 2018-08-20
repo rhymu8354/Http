@@ -633,14 +633,6 @@ TEST_F(ServerTests, ClientRequestInOnePiece) {
             connection->dataReceived.end()
         )
     );
-    ASSERT_EQ(
-        (std::vector< std::string >{
-            "Http::Server[1]: Received GET request for '/hello.txt' from mock-client",
-            "Http::Server[1]: Sent 404 'Not Found' response back to mock-client",
-        }),
-        diagnosticMessages
-    );
-    diagnosticMessages.clear();
 }
 
 TEST_F(ServerTests, ClientRequestInTwoPieces) {
@@ -1787,4 +1779,162 @@ TEST_F(ServerTests, UpgradedConnectionsShouldNotBeTimedOutByServer) {
     connection->dataReceived.clear();
     timeKeeper->currentTime = 1.001;
     ASSERT_FALSE(connection->AwaitResponse());
+}
+
+TEST_F(ServerTests, GoodRequestDiagnosticMessage) {
+    // Set up server.
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
+    (void)server.Mobilize(deps);
+
+    // Register a mock resource delegate.
+    std::vector< Uri::Uri > requestsReceived;
+    const auto resourceDelegate = [&requestsReceived](
+        const Http::Request& request,
+        std::shared_ptr< Http::Connection > connection,
+        const std::string& trailer
+    ){
+        Http::Response response;
+        response.statusCode = 200;
+        response.reasonPhrase = "OK";
+        response.body = "Hello!";
+        response.headers.SetHeader("Content-Type", "text/plain");
+        requestsReceived.push_back(request.target);
+        return response;
+    };
+    const auto unregistrationDelegate = server.RegisterResource({ "foo" }, resourceDelegate);
+    ASSERT_TRUE(requestsReceived.empty());
+
+    // Start a new mock connection.
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Issue a good GET request to registered resource.
+    std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    diagnosticMessages.clear();
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[1]: Request: GET '/foo/bar' (0) from mock-client: 200 (text/plain:6)",
+        }),
+        diagnosticMessages
+    );
+    diagnosticMessages.clear();
+
+    // Issue a good POST request to registered resource.
+    request = (
+        "POST /foo/spam HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: 8\r\n"
+        "\r\n"
+        "PogChamp"
+    );
+    diagnosticMessages.clear();
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[1]: Request: POST '/foo/spam' (text/plain:8) from mock-client: 200 (text/plain:6)",
+        }),
+        diagnosticMessages
+    );
+    diagnosticMessages.clear();
+
+    // Issue a good GET request to an unregistered resource.
+    request = (
+        "GET /nowhere HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    diagnosticMessages.clear();
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[1]: Request: GET '/nowhere' (0) from mock-client: 404 (text/plain:13)",
+        }),
+        diagnosticMessages
+    );
+    diagnosticMessages.clear();
+}
+
+TEST_F(ServerTests, BadRequestDiagnosticMessage) {
+    // Set up server.
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("BadRequestReportBytes", "10");
+    (void)server.Mobilize(deps);
+
+    // Start a new mock connection.
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Issue a bad request.
+    std::string request(
+        "Pog\0Champ This is a baaaaaaad request!\r\n\r\n",
+        42
+    );
+    diagnosticMessages.clear();
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[1]: Request: Bad request from mock-client: Pog\\x00Champ\\x20",
+        }),
+        diagnosticMessages
+    );
 }
