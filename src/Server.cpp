@@ -459,7 +459,9 @@ namespace Http {
                         response->statusCode = 408;
                         response->reasonPhrase = "Request Timeout";
                         response->headers.AddHeader("Connection", "close");
+                        lock.unlock();
                         IssueResponse(connectionState, *response, true);
+                        lock.lock();
                     }
                 }
                 (void)timerWakeCondition.wait_for(
