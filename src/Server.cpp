@@ -806,8 +806,9 @@ namespace Http {
             bool closeRequested = false;
             if (response.statusCode == 400) {
                 closeRequested = true;
-                auto& client = clients[connectionState->connection->GetPeerAddress()];
-                BanHammer(client);
+                const auto clientAddress = connectionState->connection->GetPeerAddress();
+                auto& client = clients[clientAddress];
+                BanHammer(client, clientAddress);
             } else {
                 for (const auto& connectionToken: response.headers.GetHeaderMultiValue("Connection")) {
                     if (connectionToken == "close") {
@@ -830,11 +831,25 @@ namespace Http {
 
         /**
          * This method bans the given client from the server.
+         *
+         * @param[in] client
+         *     This is the dossier of the client to ban.
+         *
+         * @param[in] clientAddress
+         *     This is the address of the client to ban.
          */
-        void BanHammer(ClientDossier& client) {
+        void BanHammer(
+            ClientDossier& client,
+            const std::string clientAddress
+        ) {
             const auto now = timeKeeper->GetCurrentTime();
             if (client.banned) {
                 client.banPeriod *= 2.0;
+                diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1, "Request: %s ban extended to %lg seconds",
+                    clientAddress.c_str(),
+                    client.banPeriod
+                );
             } else {
                 client.banPeriod = initialBanPeriod;
             }
@@ -915,7 +930,8 @@ namespace Http {
                 if (request == nullptr) {
                     break;
                 }
-                auto& client = clients[connectionState->connection->GetPeerAddress()];
+                const auto clientAddress = connectionState->connection->GetPeerAddress();
+                auto& client = clients[clientAddress];
                 const auto now = timeKeeper->GetCurrentTime();
                 client.lastRequestTimes.push_back(now);
                 while (client.lastRequestTimes.front() < now - tooManyRequestsMeasurementPeriod) {
@@ -931,7 +947,7 @@ namespace Http {
                     response.statusCode = 429;
                     response.reasonPhrase = "Too Many Requests";
                     response.headers.SetHeader("Connection", "close");
-                    BanHammer(client);
+                    BanHammer(client, clientAddress);
                 } else if (
                     (request->state == Request::State::Complete)
                     && request->valid

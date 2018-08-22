@@ -2010,6 +2010,7 @@ TEST_F(ServerTests, BadRequestWhileOnProbationExtendsBan) {
     deps.timeKeeper = timeKeeper;
     server.SetConfigurationItem("Port", "1234");
     server.SetConfigurationItem("InitialBanPeriod", "1.0");
+    server.SetConfigurationItem("BadRequestReportBytes", "10");
     (void)server.Mobilize(deps);
 
     // Start a new mock connection.
@@ -2038,6 +2039,7 @@ TEST_F(ServerTests, BadRequestWhileOnProbationExtendsBan) {
     ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
 
     // Issue bad request again.
+    diagnosticMessages.clear();
     connection->dataReceivedDelegate(
         std::vector< uint8_t >(
             request.begin(),
@@ -2047,6 +2049,14 @@ TEST_F(ServerTests, BadRequestWhileOnProbationExtendsBan) {
     EXPECT_TRUE(connection->broken);
     EXPECT_TRUE(connection->brokenGracefully);
     connection = nullptr;
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[1]: Request: Bad request from mock-client:5555: Pog\\x00Champ\\x20",
+            "Http::Server[1]: Request: mock-client ban extended to 2 seconds",
+            "Http::Server[2]: Connection to mock-client:5555 closed by server",
+        }),
+        diagnosticMessages
+    );
 
     // Advance time one more initial ban period.
     timeKeeper->currentTime = 2.5;
