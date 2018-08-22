@@ -540,6 +540,9 @@ namespace Http {
                         lock.lock();
                     }
                 }
+                lock.unlock();
+                connections.clear();
+                lock.lock();
                 (void)timerWakeCondition.wait_for(
                     lock,
                     std::chrono::milliseconds(TIMER_POLLING_PERIOD_MILLISECONDS),
