@@ -1404,7 +1404,7 @@ namespace Http {
                 if (impl_->tooManyRequestsThreshold != newTooManyRequestsThreshold) {
                     impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
                         0,
-                        "Too many requests threshold changed from %zu to %zu",
+                        "Too many requests threshold changed from %lf to %lf",
                         impl_->tooManyRequestsThreshold,
                         newTooManyRequestsThreshold
                     );
@@ -1423,7 +1423,7 @@ namespace Http {
                 if (impl_->tooManyRequestsMeasurementPeriod != newTooManyRequestsMeasurementPeriod) {
                     impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
                         0,
-                        "Too many requests measurement period eshold changed from %zu to %zu",
+                        "Too many requests measurement period changed from %lf to %lf",
                         impl_->tooManyRequestsMeasurementPeriod,
                         newTooManyRequestsMeasurementPeriod
                     );
