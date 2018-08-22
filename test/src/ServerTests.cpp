@@ -2218,6 +2218,7 @@ TEST_F(ServerTests, TooManyRequestsResultsInBan) {
     connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
     ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
+    diagnosticMessages.clear();
     connection->dataReceivedDelegate(
         std::vector< uint8_t >(
             request.begin(),
@@ -2235,6 +2236,13 @@ TEST_F(ServerTests, TooManyRequestsResultsInBan) {
     EXPECT_EQ(429, response->statusCode);
     EXPECT_TRUE(connection->broken);
     EXPECT_TRUE(connection->brokenGracefully);
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[1]: Request: GET '/' (0) from mock-client:5555: 429 (0)",
+            "Http::Server[2]: Connection to mock-client:5555 closed by server",
+        }),
+        diagnosticMessages
+    );
 
     // Try to connect again, but expect to be banned.
     connection = std::make_shared< MockConnection >();

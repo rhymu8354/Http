@@ -858,6 +858,61 @@ namespace Http {
         }
 
         /**
+         * This method publishes a diagnostic message about a client request.
+         *
+         * @param[in] request
+         *     This is the request from the client, with the target
+         *     possibly modified.
+         *
+         * @param[in] response
+         *     This is the response that was constructed for the request.
+         *
+         * @param[in] target
+         *     This is the original target URI rendered as a string.
+         *
+         * @param[in] peerId
+         *     This is the identifier of the peer who sent the request.
+         */
+        void ReportRequest(
+            const Request& request,
+            const Response& response,
+            const std::string& target,
+            const std::string& peerId
+        ) {
+            diagnosticsSender.SendDiagnosticInformationFormatted(
+                1, "Request: %s '%s' (%s) from %s: %u (%s)",
+                request.method.c_str(),
+                target.c_str(),
+                (
+                    request.headers.HasHeader("Content-Type")
+                    ? SystemAbstractions::sprintf(
+                        "%s:%zu",
+                        request.headers.GetHeaderValue("Content-Type").c_str(),
+                        request.body.length()
+                    ).c_str()
+                    : SystemAbstractions::sprintf(
+                        "%zu",
+                        request.body.length()
+                    ).c_str()
+                ),
+                peerId.c_str(),
+                response.statusCode,
+                (
+                    response.headers.HasHeader("Content-Type")
+                    ? SystemAbstractions::sprintf(
+                        "%s:%zu",
+                        response.headers.GetHeaderValue("Content-Type").c_str(),
+                        response.body.length()
+                    ).c_str()
+                    : SystemAbstractions::sprintf(
+                        "%zu",
+                        response.body.length()
+                    ).c_str()
+                )
+            );
+        }
+
+        /**
          * This method is called when a connection is broken,
          * either on the server end or the client end.
          *
@@ -947,6 +1002,12 @@ namespace Http {
                     response.statusCode = 429;
                     response.reasonPhrase = "Too Many Requests";
                     response.headers.SetHeader("Connection", "close");
+                    ReportRequest(
+                        *request,
+                        response,
+                        request->target.GenerateString(),
+                        connectionState->connection->GetPeerId()
+                    );
                     BanHammer(client, clientAddress);
                 } else if (
                     (request->state == Request::State::Complete)
@@ -1011,36 +1072,11 @@ namespace Http {
                         }
                         response.headers.SetHeader("Connection", responseConnectionTokens, true);
                     }
-                    diagnosticsSender.SendDiagnosticInformationFormatted(
-                        1, "Request: %s '%s' (%s) from %s: %u (%s)",
-                        request->method.c_str(),
-                        originalTargetAsString.c_str(),
-                        (
-                            request->headers.HasHeader("Content-Type")
-                            ? SystemAbstractions::sprintf(
-                                "%s:%zu",
-                                request->headers.GetHeaderValue("Content-Type").c_str(),
-                                request->body.length()
-                            ).c_str()
-                            : SystemAbstractions::sprintf(
-                                "%zu",
-                                request->body.length()
-                            ).c_str()
-                        ),
-                        connectionState->connection->GetPeerId().c_str(),
-                        response.statusCode,
-                        (
-                            response.headers.HasHeader("Content-Type")
-                            ? SystemAbstractions::sprintf(
-                                "%s:%zu",
-                                response.headers.GetHeaderValue("Content-Type").c_str(),
-                                response.body.length()
-                            ).c_str()
-                            : SystemAbstractions::sprintf(
-                                "%zu",
-                                response.body.length()
-                            ).c_str()
-                        )
+                    ReportRequest(
+                        *request,
+                        response,
+                        originalTargetAsString,
+                        connectionState->connection->GetPeerId()
                     );
                 } else {
                     response.statusCode = request->responseStatusCode;
