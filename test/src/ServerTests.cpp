@@ -1941,3 +1941,316 @@ TEST_F(ServerTests, BadRequestResultsInBan) {
     EXPECT_TRUE(connection->broken);
     EXPECT_FALSE(connection->brokenGracefully);
 }
+
+TEST_F(ServerTests, GoodRequestAcceptedWhileOnProbation) {
+    // Set up server.
+    auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("InitialBanPeriod", "1.0");
+    (void)server.Mobilize(deps);
+
+    // Start a new mock connection.
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Issue a bad request.
+    std::string request(
+        "Pog\0Champ This is a baaaaaaad request!\r\n\r\n",
+        42
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    connection = nullptr;
+
+    // Advance time until the client is on probation.
+    timeKeeper->currentTime = 1.5;
+
+    // Start a second mock connection.
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
+
+    // Issue a good request and expect some response.
+    request = (
+        "GET / HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_FALSE(response == nullptr);
+    EXPECT_FALSE(connection->broken);
+}
+
+TEST_F(ServerTests, BadRequestWhileOnProbationExtendsBan) {
+    // Set up server.
+    auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("InitialBanPeriod", "1.0");
+    (void)server.Mobilize(deps);
+
+    // Start a new mock connection.
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Issue a bad request.
+    std::string request(
+        "Pog\0Champ This is a baaaaaaad request!\r\n\r\n",
+        42
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    connection = nullptr;
+
+    // Advance time until the client is on probation.
+    timeKeeper->currentTime = 1.5;
+
+    // Start a second mock connection.
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
+
+    // Issue bad request again.
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    EXPECT_TRUE(connection->broken);
+    EXPECT_TRUE(connection->brokenGracefully);
+    connection = nullptr;
+
+    // Advance time one more initial ban period.
+    timeKeeper->currentTime = 2.5;
+
+    // Connect a third time, but expect to be still banned.
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    EXPECT_TRUE(connection->dataReceivedDelegate == nullptr);
+
+    // Advance time one more initial ban period.
+    timeKeeper->currentTime = 4.0;
+
+    // Connect a fourth time, and expect this time to succeed.
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
+    EXPECT_FALSE(connection->broken);
+
+    // Issue a good request and expect some response.
+    request = (
+        "GET / HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_FALSE(response == nullptr);
+    EXPECT_FALSE(connection->broken);
+}
+
+TEST_F(ServerTests, BadRequestAfterProbationResetsBan) {
+    // Set up server.
+    auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("InitialBanPeriod", "1.0");
+    server.SetConfigurationItem("ProbationPeriod", "1.0");
+    (void)server.Mobilize(deps);
+
+    // Issue a couple bad requests, in order to double initial ban time.
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    std::string request(
+        "Pog\0Champ This is a baaaaaaad request!\r\n\r\n",
+        42
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    connection = nullptr;
+    timeKeeper->currentTime = 1.5;
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    EXPECT_FALSE(connection->dataReceivedDelegate == nullptr);
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    EXPECT_TRUE(connection->broken);
+    EXPECT_TRUE(connection->brokenGracefully);
+    connection = nullptr;
+
+    // Advance time until the client is past the ban and probation periods.
+    timeKeeper->currentTime = 5.0;
+
+    // Issue a third bad request.
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    EXPECT_TRUE(connection->broken);
+    EXPECT_TRUE(connection->brokenGracefully);
+    connection = nullptr;
+
+    // Advance time one more initial ban period.
+    timeKeeper->currentTime = 6.5;
+
+    // Connect a fourth time, but expect to not be banned.
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
+
+    // Issue a good request and expect some response.
+    request = (
+        "GET / HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_FALSE(response == nullptr);
+    EXPECT_FALSE(connection->broken);
+}
+
+TEST_F(ServerTests, TooManyRequestsResultsInBan) {
+    // Set up server.
+    auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("InitialBanPeriod", "1.0");
+    server.SetConfigurationItem("TooManyRequestsThreshold", "2.0");
+    server.SetConfigurationItem("TooManyRequestsMeasurementPeriod", "1.0");
+    (void)server.Mobilize(deps);
+
+    // Issue two good requests, but too quickly,
+    // and expect to be banned.
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    const std::string request = (
+        "GET / HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_FALSE(response == nullptr);
+    EXPECT_EQ(429, response->statusCode);
+    EXPECT_TRUE(connection->broken);
+    EXPECT_TRUE(connection->brokenGracefully);
+
+    // Try to connect again, but expect to be banned.
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    EXPECT_TRUE(connection->dataReceivedDelegate == nullptr);
+
+    // Advance time until the client is past the ban period.
+    timeKeeper->currentTime = 1.5;
+
+    // Connect a third time and expect to be no longer banned.
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    ASSERT_FALSE(connection->dataReceivedDelegate == nullptr);
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_FALSE(response == nullptr);
+    EXPECT_NE(429, response->statusCode);
+    EXPECT_FALSE(connection->broken);
+}

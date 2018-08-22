@@ -80,6 +80,30 @@ namespace {
     constexpr double DEFAULT_IDLE_TIMEOUT_SECONDS = 60.0;
 
     /**
+     * This is the default number of seconds for which a client should
+     * be banned in response to sending a bad request or too many requests.
+     */
+    constexpr double DEFAULT_BAN_PERIOD_SECONDS = 60.0;
+
+    /**
+     * This is the default number of seconds after a client's ban is
+     * lifted before the client's ban period will be reset.
+     */
+    constexpr double DEFAULT_PROBATION_PERIOD_SECONDS = 60.0;
+
+    /**
+     * This is the default threshold, in requests per second, above which
+     * a client will be banned.
+     */
+    constexpr double DEFAULT_TOO_MANY_REQUESTS_THRESHOLD = 10.0;
+
+    /**
+     * This is the period over which the number of client requests is
+     * measured.
+     */
+    constexpr double DEFAULT_TOO_MANY_REQUESTS_MEASUREMENT_PERIOD = 1.0;
+
+    /**
      * This is the number of milliseconds to wait between rounds of polling
      * connections to check for timeouts.
      */
@@ -237,6 +261,35 @@ namespace {
         bool closed = false;
     };
 
+    /**
+     * This holds information about a client of the web server.
+     */
+    struct ClientDossier {
+        /**
+         * This is the number of seconds that the client will be
+         * ignored, counting from the moment the ban was imposed.
+         */
+        double banPeriod = DEFAULT_BAN_PERIOD_SECONDS;
+
+        /**
+         * This is a sampling of the time, according to the server's
+         * timekeeper, when this client was last banned.
+         */
+        double banStart = 0.0;
+
+        /**
+         * This flag indicates whether or not the client
+         * is currently banned or on probation.
+         */
+        bool banned = false;
+
+        /**
+         * These are samples of the time keeper at each point
+         * when the client made a request in the past.
+         */
+        std::deque< double > lastRequestTimes;
+    };
+
 }
 
 namespace Http {
@@ -299,6 +352,30 @@ namespace Http {
         double requestTimeout = DEFAULT_REQUEST_TIMEOUT_SECONDS;
 
         /**
+         * This is the amount of time a client should be initially banned
+         * in response to a bad request or too many requests.
+         */
+        double initialBanPeriod = DEFAULT_BAN_PERIOD_SECONDS;
+
+        /**
+         * This is the amount of time required after a client's ban
+         * has been lifted, before the client's ban period will be reset.
+         */
+        double probationPeriod = DEFAULT_PROBATION_PERIOD_SECONDS;
+
+        /**
+         * This is the threshold, in requests per second, after which
+         * a client will be banned.
+         */
+        double tooManyRequestsThreshold = DEFAULT_TOO_MANY_REQUESTS_THRESHOLD;
+
+        /**
+         * This is the period of time over which the number of requests
+         * made by a client is measured.
+         */
+        double tooManyRequestsMeasurementPeriod = DEFAULT_TOO_MANY_REQUESTS_MEASUREMENT_PERIOD;
+
+        /**
          * This flag indicates whether or not the server is running.
          */
         bool mobilized = false;
@@ -314,10 +391,9 @@ namespace Http {
         std::shared_ptr< TimeKeeper > timeKeeper;
 
         /**
-         * These are the names of peers that have been banned
-         * from the server.
+         * This holds information about known clients of the server.
          */
-        std::set< std::string > bannedPeers;
+        std::map< std::string, ClientDossier > clients;
 
         /**
          * These are the currently active client connections.
@@ -727,7 +803,8 @@ namespace Http {
             bool closeRequested = false;
             if (response.statusCode == 400) {
                 closeRequested = true;
-                (void)bannedPeers.insert(connectionState->connection->GetPeerAddress());
+                auto& client = clients[connectionState->connection->GetPeerAddress()];
+                BanHammer(client);
             } else {
                 for (const auto& connectionToken: response.headers.GetHeaderMultiValue("Connection")) {
                     if (connectionToken == "close") {
@@ -746,6 +823,20 @@ namespace Http {
                     ServerConnectionEndHandling::CloseGracefully
                 );
             }
+        }
+
+        /**
+         * This method bans the given client from the server.
+         */
+        void BanHammer(ClientDossier& client) {
+            const auto now = timeKeeper->GetCurrentTime();
+            if (client.banned) {
+                client.banPeriod *= 2.0;
+            } else {
+                client.banPeriod = initialBanPeriod;
+            }
+            client.banStart = now;
+            client.banned = true;
         }
 
         /**
@@ -821,8 +912,24 @@ namespace Http {
                 if (request == nullptr) {
                     break;
                 }
+                auto& client = clients[connectionState->connection->GetPeerAddress()];
+                const auto now = timeKeeper->GetCurrentTime();
+                client.lastRequestTimes.push_back(now);
+                while (client.lastRequestTimes.front() < now - tooManyRequestsMeasurementPeriod) {
+                    client.lastRequestTimes.pop_front();
+                }
+                const auto numClientRequestsAcrossMeasurementPeriod = client.lastRequestTimes.size();
+                const auto averageClientRequestsPerSecond = (
+                    (double)numClientRequestsAcrossMeasurementPeriod
+                    / tooManyRequestsMeasurementPeriod
+                );
                 Response response;
-                if (
+                if (averageClientRequestsPerSecond >= tooManyRequestsThreshold) {
+                    response.statusCode = 429;
+                    response.reasonPhrase = "Too Many Requests";
+                    response.headers.SetHeader("Connection", "close");
+                    BanHammer(client);
+                } else if (
                     (request->state == Request::State::Complete)
                     && request->valid
                 ) {
@@ -973,14 +1080,19 @@ namespace Http {
          */
         ServerTransport::ConnectionReadyDelegate NewConnection(std::shared_ptr< Connection > connection) {
             std::lock_guard< decltype(mutex) > lock(mutex);
-            const auto bannedPeersEntry = bannedPeers.find(connection->GetPeerAddress());
-            if (bannedPeersEntry != bannedPeers.end()) {
-                diagnosticsSender.SendDiagnosticInformationFormatted(
-                    2, "New connection from %s -- banned",
-                    connection->GetPeerId().c_str()
-                );
-                connection->Break(false);
-                return nullptr;
+            auto& client = clients[connection->GetPeerAddress()];
+            if (client.banned) {
+                const auto now = timeKeeper->GetCurrentTime();
+                if (now < client.banStart + client.banPeriod) {
+                    diagnosticsSender.SendDiagnosticInformationFormatted(
+                        2, "New connection from %s -- banned",
+                        connection->GetPeerId().c_str()
+                    );
+                    connection->Break(false);
+                    return nullptr;
+                } else if (now >= client.banStart + client.banPeriod + probationPeriod) {
+                    client.banned = false;
+                }
             }
             diagnosticsSender.SendDiagnosticInformationFormatted(
                 2, "New connection from %s",
@@ -1240,6 +1352,82 @@ namespace Http {
                         newBadRequestReportBytes
                     );
                     impl_->badRequestReportBytes = newBadRequestReportBytes;
+                }
+            }
+        } else if (key == "InitialBanPeriod") {
+            double newInitialBanPeriod;
+            if (
+                sscanf(
+                    value.c_str(),
+                    "%lf",
+                    &newInitialBanPeriod
+                ) == 1
+            ) {
+                if (impl_->initialBanPeriod != newInitialBanPeriod) {
+                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Initial ban period changed from %lf to %lf",
+                        impl_->initialBanPeriod,
+                        newInitialBanPeriod
+                    );
+                    impl_->initialBanPeriod = newInitialBanPeriod;
+                }
+            }
+        } else if (key == "ProbationPeriod") {
+            double newProbationPeriod;
+            if (
+                sscanf(
+                    value.c_str(),
+                    "%lf",
+                    &newProbationPeriod
+                ) == 1
+            ) {
+                if (impl_->probationPeriod != newProbationPeriod) {
+                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Probation period changed from %lf to %lf",
+                        impl_->probationPeriod,
+                        newProbationPeriod
+                    );
+                    impl_->probationPeriod = newProbationPeriod;
+                }
+            }
+        } else if (key == "TooManyRequestsThreshold") {
+            double newTooManyRequestsThreshold;
+            if (
+                sscanf(
+                    value.c_str(),
+                    "%lf",
+                    &newTooManyRequestsThreshold
+                ) == 1
+            ) {
+                if (impl_->tooManyRequestsThreshold != newTooManyRequestsThreshold) {
+                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Too many requests threshold changed from %zu to %zu",
+                        impl_->tooManyRequestsThreshold,
+                        newTooManyRequestsThreshold
+                    );
+                    impl_->tooManyRequestsThreshold = newTooManyRequestsThreshold;
+                }
+            }
+        } else if (key == "TooManyRequestsMeasurementPeriod") {
+            double newTooManyRequestsMeasurementPeriod;
+            if (
+                sscanf(
+                    value.c_str(),
+                    "%lf",
+                    &newTooManyRequestsMeasurementPeriod
+                ) == 1
+            ) {
+                if (impl_->tooManyRequestsMeasurementPeriod != newTooManyRequestsMeasurementPeriod) {
+                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Too many requests measurement period eshold changed from %zu to %zu",
+                        impl_->tooManyRequestsMeasurementPeriod,
+                        newTooManyRequestsMeasurementPeriod
+                    );
+                    impl_->tooManyRequestsMeasurementPeriod = newTooManyRequestsMeasurementPeriod;
                 }
             }
         }
