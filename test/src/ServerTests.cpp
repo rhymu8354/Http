@@ -2272,3 +2272,45 @@ TEST_F(ServerTests, TooManyRequestsResultsInBan) {
     EXPECT_NE(429, response->statusCode);
     EXPECT_FALSE(connection->broken);
 }
+
+TEST_F(ServerTests, MultipleBadRequestsSentAtOnceCausesContinuedProcessingAfterClose) {
+    // Set up server.
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("BadRequestReportBytes", "4");
+    (void)server.Mobilize(deps);
+
+    // Start a new mock connection.
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Issue a bad request.
+    diagnosticMessages.clear();
+    const std::string request(
+        "Pog1 This is a baaaaaaad request!\r\n\r\n"
+        "Pog2 This is another baaaaaaad request!\r\n\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[1]: Request: Bad request from mock-client:5555: Pog1",
+            "Http::Server[2]: Connection to mock-client:5555 closed by server",
+        }),
+        diagnosticMessages
+    );
+}

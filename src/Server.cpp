@@ -980,7 +980,7 @@ namespace Http {
                     )
                 );
             }
-            for (;;) {
+            while (connectionState->acceptingRequests) {
                 const auto request = TryRequestAssembly(*connectionState);
                 if (request == nullptr) {
                     break;
