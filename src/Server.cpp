@@ -1497,9 +1497,6 @@ namespace Http {
             space = impl_->resources = std::make_shared< ResourceSpace >();
         }
         for (const auto& pathSegment: resourceSubspacePath) {
-            if (space->handler != nullptr) {
-                return nullptr;
-            }
             std::shared_ptr< ResourceSpace > subspace;
             auto subspacesEntry = space->subspaces.find(pathSegment);
             if (subspacesEntry == space->subspaces.end()) {
@@ -1511,20 +1508,23 @@ namespace Http {
             }
             space = subspace;
         }
-        if (
-            (space->handler == nullptr)
-            && space->subspaces.empty()
-        ) {
+        if (space->handler == nullptr) {
             space->handler = resourceDelegate;
             return [this, space]{
                 auto currentSpace = space;
+                currentSpace->handler = nullptr;
                 for (;;) {
                     auto superspace = currentSpace->superspace.lock();
-                    if (superspace == nullptr) {
-                        impl_->resources = nullptr;
-                        break;
-                    } else {
-                        (void)superspace->subspaces.erase(currentSpace->name);
+                    if (
+                        (currentSpace->handler == nullptr)
+                        && currentSpace->subspaces.empty()
+                    ) {
+                        if (superspace == nullptr) { // at root level
+                            impl_->resources = nullptr;
+                            break;
+                        } else {
+                            (void)superspace->subspaces.erase(currentSpace->name);
+                        }
                     }
                     if (superspace->subspaces.empty()) {
                         currentSpace = superspace;

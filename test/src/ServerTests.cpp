@@ -1251,7 +1251,7 @@ TEST_F(ServerTests, DontAllowDoubleRegistration) {
     ASSERT_TRUE(unregisterImpostor == nullptr);
 }
 
-TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
+TEST_F(ServerTests, DoAllowOverlappingSubspaces) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
@@ -1262,37 +1262,75 @@ TEST_F(ServerTests, DontAllowOverlappingSubspaces) {
     transport->connectionDelegate(connection);
 
     // Register /foo/bar delegate.
-    const auto foobar = [](
+    bool fooBarAccessed = false;
+    const auto foobar = [&fooBarAccessed](
         const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
+        fooBarAccessed = true;
         return Http::Response();
     };
     auto unregisterFoobar = server.RegisterResource({ "foo", "bar" }, foobar);
     ASSERT_FALSE(unregisterFoobar == nullptr);
 
     // Attempt to register /foo delegate.
-    // This should not be allowed because it would overlap the /foo/bar delegate.
-    const auto foo = [](
+    // This should be allowed because although it would overlap the /foo/bar
+    // space, it doesn't exactly match it.
+    bool fooAccessed = false;
+    const auto foo = [&fooAccessed](
         const Http::Request& request,
         std::shared_ptr< Http::Connection > connection,
         const std::string& trailer
     ){
+        fooAccessed = true;
         return Http::Response();
     };
     auto unregisterFoo = server.RegisterResource({ "foo" }, foo);
-    ASSERT_TRUE(unregisterFoo == nullptr);
-
-    // Unregister /foo/bar and register /foo.
-    unregisterFoobar();
-    unregisterFoo = server.RegisterResource({ "foo" }, foo);
     ASSERT_FALSE(unregisterFoo == nullptr);
 
-    // Attempt to register /foo/bar again.
-    // This should not be allowed because it would overlap the /foo delegate.
-    unregisterFoobar = server.RegisterResource({ "foo", "bar" }, foobar);
-    ASSERT_TRUE(unregisterFoobar == nullptr);
+    // Test that queries to the two overlapping subspaces are routed
+    // to the correct handlers.
+    const std::string fooRequest = (
+        "GET /foo/index.html HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    const std::string fooBarRequest = (
+        "GET /foo/bar/index.html HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            fooRequest.begin(),
+            fooRequest.end()
+        )
+    );
+    EXPECT_TRUE(fooAccessed);
+    EXPECT_FALSE(fooBarAccessed);
+    fooAccessed = fooBarAccessed = false;
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            fooBarRequest.begin(),
+            fooBarRequest.end()
+        )
+    );
+    EXPECT_FALSE(fooAccessed);
+    EXPECT_TRUE(fooBarAccessed);
+    fooAccessed = fooBarAccessed = false;
+
+    // Unregister the /foo/bar delegate, and send a new request to /foo/bar,
+    // this time expecting the /foo delegate to be called.
+    unregisterFoobar();
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            fooBarRequest.begin(),
+            fooBarRequest.end()
+        )
+    );
+    EXPECT_TRUE(fooAccessed);
+    EXPECT_FALSE(fooBarAccessed);
 }
 
 TEST_F(ServerTests, ContentLengthSetByServer) {
