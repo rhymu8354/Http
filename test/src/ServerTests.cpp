@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 #include <Http/Client.hpp>
 #include <Http/Server.hpp>
+#include <inttypes.h>
 #include <limits>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <SystemAbstractions/StringExtensions.hpp>
@@ -204,14 +205,18 @@ namespace {
             uint16_t newPort,
             NewConnectionDelegate newConnectionDelegate
         ) override {
-            port = newPort;
+            if (newPort == 0) {
+                port = 1234;
+            } else {
+                port = newPort;
+            }
             connectionDelegate = newConnectionDelegate;
             bound = true;
             return true;
         }
 
         virtual uint16_t GetBoundPort() override {
-            return 0;
+            return port;
         }
 
         virtual void ReleaseNetwork() override {
@@ -555,7 +560,7 @@ TEST_F(ServerTests, RequestWithNoContentLengthOrChunkedTransferEncodingHasNoBody
     ASSERT_TRUE(request->body.empty());
 }
 
-TEST_F(ServerTests, Mobilize) {
+TEST_F(ServerTests, MobilizeKnownPort) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
     deps.transport = transport;
@@ -565,6 +570,27 @@ TEST_F(ServerTests, Mobilize) {
     ASSERT_TRUE(transport->bound);
     ASSERT_EQ(1234, transport->port);
     ASSERT_FALSE(transport->connectionDelegate == nullptr);
+}
+
+TEST_F(ServerTests, MobilizeRandomPort) {
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    EXPECT_EQ("80", server.GetConfigurationItem("Port"));
+    server.SetConfigurationItem("Port", "0");
+    diagnosticMessages.clear();
+    ASSERT_TRUE(server.Mobilize(deps));
+    ASSERT_TRUE(transport->bound);
+    EXPECT_EQ(1234, transport->port);
+    EXPECT_EQ("1234", server.GetConfigurationItem("Port"));
+    ASSERT_FALSE(transport->connectionDelegate == nullptr);
+    ASSERT_EQ(
+        (std::vector< std::string >{
+            "Http::Server[3]: Now listening on port 1234"
+        }),
+        diagnosticMessages
+    );
 }
 
 TEST_F(ServerTests, Demobilize) {

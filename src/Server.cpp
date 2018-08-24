@@ -1209,6 +1209,7 @@ namespace Http {
     {
         impl_->server = this;
         impl_->configuration["HeaderLineLimit"] = SystemAbstractions::sprintf("%zu", impl_->headerLineLimit);
+        impl_->configuration["Port"] = SystemAbstractions::sprintf("%" PRIu16, impl_->port);
         impl_->reaper = std::thread(&Impl::Reaper, impl_.get());
     }
 
@@ -1225,6 +1226,7 @@ namespace Http {
                 }
             )
         ) {
+            impl_->port = impl_->transport->GetBoundPort();
             impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
                 3, "Now listening on port %" PRIu16,
                 impl_->port
@@ -1233,6 +1235,7 @@ namespace Http {
             impl_->transport = nullptr;
             return false;
         }
+        impl_->configuration["Port"] = SystemAbstractions::sprintf("%" PRIu16, impl_->port);
         impl_->timeKeeper = deps.timeKeeper;
         impl_->stopTimer = false;
         impl_->timer = std::thread(&Impl::Timer, impl_.get());
