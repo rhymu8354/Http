@@ -498,6 +498,65 @@ namespace Http {
         }
 
         /**
+         * This is the template of a helper function which is used to
+         * parse a configuration item and set it if the parsing is successful.
+         *
+         * @param ItemType
+         *     This is the type of the configuration item.
+         *
+         * @param[in,out] item
+         *     This is the configuration item to set.
+         *
+         * @param[in] scanFormat
+         *     This is the scanf-style format specification for printing
+         *     the configuration item.
+         *
+         * @param[in] printFormat
+         *     This is the printf-style format specification for printing
+         *     the configuration item.
+         *
+         * @param[in] description
+         *     This is the string to display in diagnostic messages about
+         *     the configuration item.
+         *
+         * @param[in] value
+         *     This is the value to parse to be the new value of the item.
+         */
+        template<
+            typename ItemType
+        > void ParseConfigurationItem(
+            ItemType& item,
+            const char* const scanFormat,
+            const char* const printFormat,
+            const char* const description,
+            const std::string& value
+        ) {
+            ItemType newItem;
+            if (
+                sscanf(
+                    value.c_str(),
+                    scanFormat,
+                    &newItem
+                ) == 1
+            ) {
+                if (item != newItem) {
+                    diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        SystemAbstractions::sprintf(
+                            "%s changed from %s to %s",
+                            description,
+                            printFormat,
+                            printFormat
+                        ).c_str(),
+                        item,
+                        newItem
+                    );
+                    item = newItem;
+                }
+            }
+        }
+
+        /**
          * This method is the body of the reaper thread.
          * Until it's told to stop, it simply clears
          * the connectionsToDrop set whenever it wakes up.
@@ -1326,195 +1385,25 @@ namespace Http {
     ) {
         impl_->configuration[key] = value;
         if (key == "HeaderLineLimit") {
-            size_t newHeaderLineLimit;
-            if (
-                sscanf(
-                    value.c_str(),
-                    "%zu",
-                    &newHeaderLineLimit
-                ) == 1
-            ) {
-                if (impl_->headerLineLimit != newHeaderLineLimit) {
-                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        0,
-                        "Header line limit changed from %zu to %zu",
-                        impl_->headerLineLimit,
-                        newHeaderLineLimit
-                    );
-                    impl_->headerLineLimit = newHeaderLineLimit;
-                }
-            }
+            impl_->ParseConfigurationItem(impl_->headerLineLimit, "%zu", "%zu", "Header line limit", value);
         } else if (key == "Port") {
-            uint16_t newPort;
-            if (
-                sscanf(
-                    value.c_str(),
-                    "%" SCNu16,
-                    &newPort
-                ) == 1
-            ) {
-                if (impl_->port != newPort) {
-                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        0,
-                        "Port number changed from %" PRIu16 " to %" PRIu16,
-                        impl_->port,
-                        newPort
-                    );
-                    impl_->port = newPort;
-                }
-            }
+            impl_->ParseConfigurationItem(impl_->port, "%" SCNu16, "%" PRIu16, "Port number", value);
         } else if (key == "InactivityTimeout") {
-            double newInactivityTimeout;
-            if (
-                sscanf(
-                    value.c_str(),
-                    "%lf",
-                    &newInactivityTimeout
-                ) == 1
-            ) {
-                if (impl_->inactivityTimeout != newInactivityTimeout) {
-                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        0,
-                        "Inactivity timeout changed from %lf to %lf",
-                        impl_->inactivityTimeout,
-                        newInactivityTimeout
-                    );
-                    impl_->inactivityTimeout = newInactivityTimeout;
-                }
-            }
+            impl_->ParseConfigurationItem(impl_->inactivityTimeout, "%lf", "%lf", "Inactivity timeout", value);
         } else if (key == "RequestTimeout") {
-            double newRequestTimeout;
-            if (
-                sscanf(
-                    value.c_str(),
-                    "%lf",
-                    &newRequestTimeout
-                ) == 1
-            ) {
-                if (impl_->requestTimeout != newRequestTimeout) {
-                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        0,
-                        "Request timeout changed from %lf to %lf",
-                        impl_->requestTimeout,
-                        newRequestTimeout
-                    );
-                    impl_->requestTimeout = newRequestTimeout;
-                }
-            }
+            impl_->ParseConfigurationItem(impl_->requestTimeout, "%lf", "%lf", "Request timeout", value);
         } else if (key == "IdleTimeout") {
-            double newIdleTimeout;
-            if (
-                sscanf(
-                    value.c_str(),
-                    "%lf",
-                    &newIdleTimeout
-                ) == 1
-            ) {
-                if (impl_->idleTimeout != newIdleTimeout) {
-                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        0,
-                        "Idle timeout changed from %lf to %lf",
-                        impl_->idleTimeout,
-                        newIdleTimeout
-                    );
-                    impl_->idleTimeout = newIdleTimeout;
-                }
-            }
+            impl_->ParseConfigurationItem(impl_->idleTimeout, "%lf", "%lf", "Idle timeout", value);
         } else if (key == "BadRequestReportBytes") {
-            size_t newBadRequestReportBytes;
-            if (
-                sscanf(
-                    value.c_str(),
-                    "%zu",
-                    &newBadRequestReportBytes
-                ) == 1
-            ) {
-                if (impl_->badRequestReportBytes != newBadRequestReportBytes) {
-                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        0,
-                        "Bad request report bytes changed from %zu to %zu",
-                        impl_->badRequestReportBytes,
-                        newBadRequestReportBytes
-                    );
-                    impl_->badRequestReportBytes = newBadRequestReportBytes;
-                }
-            }
+            impl_->ParseConfigurationItem(impl_->badRequestReportBytes, "%zu", "%zu", "Bad request report bytes", value);
         } else if (key == "InitialBanPeriod") {
-            double newInitialBanPeriod;
-            if (
-                sscanf(
-                    value.c_str(),
-                    "%lf",
-                    &newInitialBanPeriod
-                ) == 1
-            ) {
-                if (impl_->initialBanPeriod != newInitialBanPeriod) {
-                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        0,
-                        "Initial ban period changed from %lf to %lf",
-                        impl_->initialBanPeriod,
-                        newInitialBanPeriod
-                    );
-                    impl_->initialBanPeriod = newInitialBanPeriod;
-                }
-            }
+            impl_->ParseConfigurationItem(impl_->initialBanPeriod, "%lf", "%lf", "Initial ban period", value);
         } else if (key == "ProbationPeriod") {
-            double newProbationPeriod;
-            if (
-                sscanf(
-                    value.c_str(),
-                    "%lf",
-                    &newProbationPeriod
-                ) == 1
-            ) {
-                if (impl_->probationPeriod != newProbationPeriod) {
-                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        0,
-                        "Probation period changed from %lf to %lf",
-                        impl_->probationPeriod,
-                        newProbationPeriod
-                    );
-                    impl_->probationPeriod = newProbationPeriod;
-                }
-            }
+            impl_->ParseConfigurationItem(impl_->probationPeriod, "%lf", "%lf", "Probation period", value);
         } else if (key == "TooManyRequestsThreshold") {
-            double newTooManyRequestsThreshold;
-            if (
-                sscanf(
-                    value.c_str(),
-                    "%lf",
-                    &newTooManyRequestsThreshold
-                ) == 1
-            ) {
-                if (impl_->tooManyRequestsThreshold != newTooManyRequestsThreshold) {
-                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        0,
-                        "Too many requests threshold changed from %lf to %lf",
-                        impl_->tooManyRequestsThreshold,
-                        newTooManyRequestsThreshold
-                    );
-                    impl_->tooManyRequestsThreshold = newTooManyRequestsThreshold;
-                }
-            }
+            impl_->ParseConfigurationItem(impl_->tooManyRequestsThreshold, "%lf", "%lf", "Too many requests threshold", value);
         } else if (key == "TooManyRequestsMeasurementPeriod") {
-            double newTooManyRequestsMeasurementPeriod;
-            if (
-                sscanf(
-                    value.c_str(),
-                    "%lf",
-                    &newTooManyRequestsMeasurementPeriod
-                ) == 1
-            ) {
-                if (impl_->tooManyRequestsMeasurementPeriod != newTooManyRequestsMeasurementPeriod) {
-                    impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        0,
-                        "Too many requests measurement period changed from %lf to %lf",
-                        impl_->tooManyRequestsMeasurementPeriod,
-                        newTooManyRequestsMeasurementPeriod
-                    );
-                    impl_->tooManyRequestsMeasurementPeriod = newTooManyRequestsMeasurementPeriod;
-                }
-            }
+            impl_->ParseConfigurationItem(impl_->tooManyRequestsMeasurementPeriod, "%lf", "%lf", "Too many requests measurement period", value);
         }
     }
 
