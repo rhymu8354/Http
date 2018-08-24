@@ -150,6 +150,26 @@ namespace {
     };
 
     /**
+     * This is a helper function which formats the given double-precision
+     * floating-point value as a string, ensuring that it will always
+     * look like a floating-point value, and never an integer.
+     *
+     * @param[in] number
+     *     This is the number to format.
+     *
+     * @return
+     *     A string representation of the number, guaranteed not to
+     *     look like an integer, is returned.
+     */
+    std::string FormatDoubleAsDistinctlyNotInteger(double number) {
+        auto s = SystemAbstractions::sprintf("%.15lg", number);
+        if (s.find_first_not_of("0123456789-") == std::string::npos) {
+            s += ".0";
+        }
+        return s;
+    }
+
+    /**
      * This method parses the method, target URI, and protocol identifier
      * from the given request line.
      *
@@ -1210,6 +1230,13 @@ namespace Http {
         impl_->server = this;
         impl_->configuration["HeaderLineLimit"] = SystemAbstractions::sprintf("%zu", impl_->headerLineLimit);
         impl_->configuration["Port"] = SystemAbstractions::sprintf("%" PRIu16, impl_->port);
+        impl_->configuration["RequestTimeout"] = FormatDoubleAsDistinctlyNotInteger(impl_->requestTimeout);
+        impl_->configuration["IdleTimeout"] = FormatDoubleAsDistinctlyNotInteger(impl_->idleTimeout);
+        impl_->configuration["BadRequestReportBytes"] = SystemAbstractions::sprintf("%zu", impl_->badRequestReportBytes);
+        impl_->configuration["InitialBanPeriod"] = FormatDoubleAsDistinctlyNotInteger(impl_->initialBanPeriod);
+        impl_->configuration["ProbationPeriod"] = FormatDoubleAsDistinctlyNotInteger(impl_->probationPeriod);
+        impl_->configuration["TooManyRequestsThreshold"] = FormatDoubleAsDistinctlyNotInteger(impl_->tooManyRequestsThreshold);
+        impl_->configuration["TooManyRequestsMeasurementPeriod"] = FormatDoubleAsDistinctlyNotInteger(impl_->tooManyRequestsMeasurementPeriod);
         impl_->reaper = std::thread(&Impl::Reaper, impl_.get());
     }
 

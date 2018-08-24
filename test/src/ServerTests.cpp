@@ -302,6 +302,18 @@ struct ServerTests
     }
 };
 
+TEST_F(ServerTests, DefaultConfiguration) {
+    EXPECT_EQ("1000", server.GetConfigurationItem("HeaderLineLimit"));
+    EXPECT_EQ("80", server.GetConfigurationItem("Port"));
+    EXPECT_EQ("60.0", server.GetConfigurationItem("RequestTimeout"));
+    EXPECT_EQ("60.0", server.GetConfigurationItem("IdleTimeout"));
+    EXPECT_EQ("100", server.GetConfigurationItem("BadRequestReportBytes"));
+    EXPECT_EQ("60.0", server.GetConfigurationItem("InitialBanPeriod"));
+    EXPECT_EQ("60.0", server.GetConfigurationItem("ProbationPeriod"));
+    EXPECT_EQ("10.0", server.GetConfigurationItem("TooManyRequestsThreshold"));
+    EXPECT_EQ("1.0", server.GetConfigurationItem("TooManyRequestsMeasurementPeriod"));
+}
+
 TEST_F(ServerTests, ParseGetRequest) {
     const auto request = server.ParseRequest(
         "GET /hello.txt HTTP/1.1\r\n"
