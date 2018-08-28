@@ -200,6 +200,9 @@ namespace {
 
         // Parse the target URI.
         const auto targetDelimiter = requestLine.find(' ', methodDelimiter + 1);
+        if (targetDelimiter == std::string::npos) {
+            return false;
+        }
         const auto targetLength = targetDelimiter - methodDelimiter - 1;
         if (targetLength == 0) {
             return false;

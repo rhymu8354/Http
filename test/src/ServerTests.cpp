@@ -394,6 +394,21 @@ TEST_F(ServerTests, ParseInvalidRequestNoTarget) {
     ASSERT_FALSE(request->valid);
 }
 
+TEST_F(ServerTests, ParseInvalidRequestNoProtocol) {
+    size_t messageEnd;
+    const std::string rawRequest = (
+        "GET /hello.txt\r\n"
+        "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
+        "Host: www.example.com\r\n"
+        "Accept-Language: en, mi\r\n"
+        "\r\n"
+    );
+    const auto request = server.ParseRequest(rawRequest, messageEnd);
+    ASSERT_FALSE(request == nullptr);
+    ASSERT_EQ(Http::Request::State::Complete, request->state);
+    ASSERT_FALSE(request->valid);
+}
+
 TEST_F(ServerTests, ParseInvalidRequestBadProtocol) {
     size_t messageEnd;
     const std::string rawRequest = (
