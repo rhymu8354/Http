@@ -734,14 +734,11 @@ namespace Http {
 
             // Finally, extract the body.
             if (request.state == Request::State::Body) {
-                // Check for "Content-Length" header.  If present, use this to
-                // determine how many characters should be in the body.
-                const auto bytesAvailableForBody = nextRawRequestPart.length() - messageEnd;
-
                 // If there is a "Content-Length"
                 // header, we carefully carve exactly that number of characters
                 // out (and bail if we don't have enough).  Otherwise, we just
                 // assume the body extends to the end of the raw message.
+                const auto bytesAvailableForBody = nextRawRequestPart.length() - messageEnd;
                 if (request.headers.HasHeader("Content-Length")) {
                     intmax_t contentLengthAsInt;
                     switch (
