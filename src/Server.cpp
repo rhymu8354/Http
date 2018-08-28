@@ -1037,7 +1037,7 @@ namespace Http {
          */
         void DataReceived(
             std::shared_ptr< ConnectionState > connectionState,
-            std::vector< uint8_t > data
+            const std::vector< uint8_t >& data
         ) {
             if (!connectionState->acceptingRequests) {
                 return;
@@ -1235,7 +1235,7 @@ namespace Http {
             (void)activeConnections.insert(connectionState);
             std::weak_ptr< ConnectionState > connectionStateWeak(connectionState);
             connection->SetDataReceivedDelegate(
-                [this, connectionStateWeak](std::vector< uint8_t > data){
+                [this, connectionStateWeak](const std::vector< uint8_t >& data){
                     std::lock_guard< decltype(mutex) > lock(mutex);
                     const auto connectionState = connectionStateWeak.lock();
                     if (connectionState == nullptr) {
