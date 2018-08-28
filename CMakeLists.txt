@@ -7,6 +7,7 @@ set(This Http)
 
 set(Headers
     include/Http/Client.hpp
+    include/Http/ClientTransport.hpp
     include/Http/Connection.hpp
     include/Http/IServer.hpp
     include/Http/Request.hpp
