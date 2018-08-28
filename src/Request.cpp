@@ -7,6 +7,7 @@
  */
 
 #include <Http/Request.hpp>
+#include <sstream>
 
 namespace Http {
 
@@ -15,6 +16,14 @@ namespace Http {
             (state == State::Complete)
             || (state == State::Error)
         );
+    }
+
+    std::string Request::Generate() const {
+        std::ostringstream builder;
+        builder << method << ' ' << target.GenerateString() << " HTTP/1.1\r\n";
+        builder << headers.GenerateRawHeaders();
+        builder << body;
+        return builder.str();
     }
 
     void PrintTo(

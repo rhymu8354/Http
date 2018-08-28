@@ -129,6 +129,16 @@ namespace Http {
          *     has been fully constructed (valid or not) is returned.
          */
         bool IsCompleteOrError() const;
+
+        /**
+         * This method generates the data to transmit to the server
+         * to send this request to the server.
+         *
+         * @return
+         *     The data to transmit to the server to send
+         *     this request to the server is returned.
+         */
+        std::string Generate() const;
     };
 
     /**
