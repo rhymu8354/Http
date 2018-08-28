@@ -11,6 +11,13 @@
 
 namespace Http {
 
+    bool Response::IsCompleteOrError() const {
+        return (
+            (state == State::Complete)
+            || (state == State::Error)
+        );
+    }
+
     std::string Response::Generate() const {
         std::ostringstream builder;
         builder << "HTTP/1.1 " << statusCode << ' ' << reasonPhrase << "\r\n";

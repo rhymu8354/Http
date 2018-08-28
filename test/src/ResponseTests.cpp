@@ -9,8 +9,23 @@
 
 #include <gtest/gtest.h>
 #include <Http/Response.hpp>
+#include <SystemAbstractions/StringExtensions.hpp>
 
-TEST(ResponseTests, GenerateGetRequest) {
+TEST(ResponseTests, IsCompleteOrError) {
+    Http::Response response;
+    response.state = Http::Response::State::Complete;
+    EXPECT_TRUE(response.IsCompleteOrError());
+    response.state = Http::Response::State::Error;
+    EXPECT_TRUE(response.IsCompleteOrError());
+    response.state = Http::Response::State::Headers;
+    EXPECT_FALSE(response.IsCompleteOrError());
+    response.state = Http::Response::State::StatusLine;
+    EXPECT_FALSE(response.IsCompleteOrError());
+    response.state = Http::Response::State::Body;
+    EXPECT_FALSE(response.IsCompleteOrError());
+}
+
+TEST(ResponseTests, GenerateGetResponse) {
     Http::Response response;
     response.statusCode = 200;
     response.reasonPhrase = "OK";
