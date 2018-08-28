@@ -9,11 +9,17 @@
  * © 2018 by Richard Walters
  */
 
+#include "ClientTransport.hpp"
+#include "Request.hpp"
 #include "Response.hpp"
+#include "TimeKeeper.hpp"
 
+#include <chrono>
 #include <memory>
 #include <MessageHeaders/MessageHeaders.hpp>
+#include <stddef.h>
 #include <string>
+#include <SystemAbstractions/DiagnosticsSender.hpp>
 
 namespace Http {
 
@@ -26,6 +32,57 @@ namespace Http {
      * and parse HTTP responses received back from web servers.
      */
     class Client {
+        // Types
+    public:
+        /**
+         * This structure holds all of the configuration items
+         * and dependency objects needed by the client when it's
+         * mobilized.
+         */
+        struct MobilizationDependencies {
+            /**
+             * This is the transport layer implementation to use.
+             */
+            std::shared_ptr< ClientTransport > transport;
+
+            /**
+             * This is the object used to track time in the client.
+             */
+            std::shared_ptr< TimeKeeper > timeKeeper;
+        };
+
+        /**
+         * This represents the state of a resource request made through
+         * the client.
+         */
+        struct Transaction {
+            // Properties
+
+            /**
+             * This is either the response obtained from the server,
+             * or a substitute made by the client in the case where
+             * the transaction could not be completed successfully.
+             */
+            Http::Response response;
+
+            // Methods
+
+            /**
+             * This method can be used to wait for the transaction to complete.
+             *
+             * @param[in] relativeTime
+             *     This is the maximum amount of time, in milliseconds,
+             *     to wait for the transaction to complete.
+             *
+             * @return
+             *     An indication of whether or not the transaction was
+             *     completed in time is returned.
+             */
+            virtual bool AwaitCompletion(
+                const std::chrono::milliseconds& relativeTime
+            ) = 0;
+        };
+
         // Lifecycle management
     public:
         ~Client() noexcept;
@@ -40,6 +97,57 @@ namespace Http {
          * This is the default constructor.
          */
         Client();
+
+        /**
+         * This method forms a new subscription to diagnostic
+         * messages published by the sender.
+         *
+         * @param[in] delegate
+         *     This is the function to call to deliver messages
+         *     to this subscriber.
+         *
+         * @param[in] minLevel
+         *     This is the minimum level of message that this subscriber
+         *     desires to receive.
+         *
+         * @return
+         *     A function is returned which may be called
+         *     to terminate the subscription.
+         */
+        SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate SubscribeToDiagnostics(
+            SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
+            size_t minLevel = 0
+        );
+
+        /**
+         * This method will set up the client with its dependencies,
+         * preparing it to be able to issue requests to servers.
+         *
+         * @param[in] deps
+         *     These are all of the configuration items and dependency objects
+         *     needed by the client when it's mobilized.
+         */
+        void Mobilize(const MobilizationDependencies& deps);
+
+        /**
+         * This method asynchronously posts the given request for a resource
+         * on the Internet.
+         *
+         * @param[in] request
+         *     This is the request to make.  The server's address
+         *     is obtained from the request's target URI.
+         *
+         * @return
+         *     An object representing the resource request is returned.
+         */
+        std::shared_ptr< Transaction > Request(Http::Request request);
+
+        /**
+         * This method stops processing of server connections,
+         * and releases the transport layer, returning the client back to the
+         * state it was in before Mobilize was called.
+         */
+        void Demobilize();
 
         /**
          * This method parses the given string as a raw HTTP response message.
