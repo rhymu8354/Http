@@ -541,6 +541,7 @@ TEST_F(ClientTests, SimpleGetRequestOnePieceResponse) {
     outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
     const auto transaction = client.Request(outgoingRequest);
     ASSERT_FALSE(transaction == nullptr);
+    EXPECT_EQ(Http::Client::Transaction::State::InProgress, transaction->state);
     ASSERT_TRUE(transport->AwaitConnections(1));
     const auto& connection = transport->connections[0];
     EXPECT_EQ("www.example.com", connection->hostNameOrIpAddress);
@@ -564,6 +565,7 @@ TEST_F(ClientTests, SimpleGetRequestOnePieceResponse) {
 
     // Wait for client transaction to complete.
     ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::Completed, transaction->state);
     EXPECT_EQ(200, transaction->response.statusCode);
     EXPECT_EQ("OK", transaction->response.reasonPhrase);
     EXPECT_EQ("Bar", transaction->response.headers.GetHeaderValue("Foo"));
@@ -863,4 +865,51 @@ TEST_F(ClientTests, SecondRequestNonPersistentWithPersistentConnectionClosesConn
     EXPECT_EQ("text/plain", transaction->response.headers.GetHeaderValue("Content-Type"));
     EXPECT_EQ("7", transaction->response.headers.GetHeaderValue("Content-Length"));
     EXPECT_EQ("HeyGuys", transaction->response.body);
+}
+
+TEST_F(ClientTests, SimpleGetRequestConnectionBrokenByServerBeforeResponseCompleted) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    const auto transaction = client.Request(outgoingRequest);
+    ASSERT_TRUE(transport->AwaitConnections(1));
+    const auto connection = transport->connections[0];
+
+    // Break the connection to the client.
+    ASSERT_FALSE(connection->brokenDelegate == nullptr);
+    connection->brokenDelegate(false);
+
+    // Wait for client transaction to complete.
+    // Expect a special status code indicating the server is unavailable.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::Broken, transaction->state);
+}
+
+TEST_F(ClientTests, SimpleGetRequestConnectionRefused) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    transport->connectionsAllowed = 0;
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    const auto transaction = client.Request(outgoingRequest);
+
+    // Wait for client transaction to complete.
+    // Expect a special status code indicating the server is unavailable.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::UnableToConnect, transaction->state);
 }

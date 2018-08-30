@@ -17,6 +17,7 @@
 #include <chrono>
 #include <memory>
 #include <MessageHeaders/MessageHeaders.hpp>
+#include <ostream>
 #include <stddef.h>
 #include <string>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
@@ -56,7 +57,39 @@ namespace Http {
          * the client.
          */
         struct Transaction {
+            // Types
+
+            /**
+             * These are the different states that a transaction can be in.
+             */
+            enum class State {
+                /**
+                 * The connection to the server is still being established,
+                 * or the request is still being sent, or the response
+                 * is still being received.
+                 */
+                InProgress,
+
+                /**
+                 * A response has been completely received
+                 */
+                Completed,
+
+                /**
+                 * The connection to the server could not be established.
+                 */
+                UnableToConnect,
+
+                /**
+                 * The server disconnected before a complete response
+                 * could be received.
+                 */
+                Broken,
+            };
+
             // Properties
+
+            State state = State::InProgress;
 
             /**
              * This is either the response obtained from the server,
@@ -68,7 +101,12 @@ namespace Http {
             // Methods
 
             /**
-             * This method can be used to wait for the transaction to complete.
+             * This method can be used to wait for the transaction
+             * to complete.
+             *
+             * @note
+             *     This method will return immediately if the state
+             *     is not State::InProgress.
              *
              * @param[in] relativeTime
              *     This is the maximum amount of time, in milliseconds,
@@ -214,6 +252,22 @@ namespace Http {
          */
         std::unique_ptr< Impl > impl_;
     };
+
+    /**
+     * This is a support function for Google Test to print out
+     * values of the Http::Client::Transaction::State class.
+     *
+     * @param[in] state
+     *     This is the HTTP client transaction state value to print.
+     *
+     * @param[in] os
+     *     This points to the stream to which to print the
+     *     HTTP client transaction state value.
+     */
+    void PrintTo(
+        const Http::Client::Transaction::State& state,
+        std::ostream* os
+    );
 
 }
 

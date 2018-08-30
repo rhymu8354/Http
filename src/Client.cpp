@@ -204,8 +204,14 @@ namespace {
     /**
      * This holds onto all the information that a client has about
      * a connection to a server.
+     *
+     * @note
+     *     It would be better to name this ConnectionState, but this
+     *     confuses the Visual Studio debugger, because the Server
+     *     implementation has its own ConnectionState structure which
+     *     is obviously different.
      */
-    struct ConnectionState {
+    struct ClientConnectionState {
         /**
          * This is the connection to the server.
          */
@@ -236,7 +242,7 @@ namespace {
          * This is the state of the connection to the server
          * used by this transaction.
          */
-        std::shared_ptr< ConnectionState > connectionState;
+        std::shared_ptr< ClientConnectionState > connectionState;
 
         /**
          * This flag indicates whether or not the connection used to
@@ -284,7 +290,7 @@ namespace {
         void CompleteWithLock() {
             complete = true;
             if (
-                (connectionState != nullptr)
+                (connectionState->connection != nullptr)
                 && !persistConnection
             ) {
                 connectionState->connection->Break(false);
@@ -311,6 +317,7 @@ namespace {
                 reassemblyBuffer.begin() + charactersAccepted
             );
             if (response.IsCompleteOrError()) {
+                state = Transaction::State::Completed;
                 CompleteWithLock();
             }
         }
@@ -363,7 +370,7 @@ namespace Http {
         /**
          * This is used to hold onto persistent connections to servers.
          */
-        std::map< std::string, std::shared_ptr< ConnectionState > > persistentConnections;
+        std::map< std::string, std::shared_ptr< ClientConnectionState > > persistentConnections;
 
         // Methods
 
@@ -416,11 +423,11 @@ namespace Http {
             hostNameOrAddress.c_str(),
             port
         );
-        std::shared_ptr< ConnectionState > connectionState;
+        std::shared_ptr< ClientConnectionState > connectionState;
         const auto persistentConnectionsEntry = impl_->persistentConnections.find(serverId);
         if (persistentConnectionsEntry == impl_->persistentConnections.end()) {
-            connectionState = std::make_shared< ConnectionState >();
-            std::weak_ptr< ConnectionState > connectionStateWeak(connectionState);
+            connectionState = std::make_shared< ClientConnectionState >();
+            std::weak_ptr< ClientConnectionState > connectionStateWeak(connectionState);
             connectionState->connection = impl_->transport->Connect(
                 hostNameOrAddress,
                 port,
@@ -439,7 +446,21 @@ namespace Http {
                     }
                     transaction->DataReceived(data);
                 },
-                [](bool){
+                [connectionStateWeak](bool){
+                    const auto connectionState = connectionStateWeak.lock();
+                    if (connectionState == nullptr) {
+                        return;
+                    }
+                    std::shared_ptr< TransactionImpl > transaction;
+                    {
+                        std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
+                        transaction = connectionState->currentTransaction.lock();
+                    }
+                    if (transaction == nullptr) {
+                        return;
+                    }
+                    transaction->state = Transaction::State::Broken;
+                    transaction->Complete();
                 }
             );
         } else {
@@ -451,8 +472,7 @@ namespace Http {
         }
         transaction->connectionState = connectionState;
         if (connectionState->connection == nullptr) {
-            transaction->response.statusCode = 503;
-            transaction->response.reasonPhrase = "Service Unavailable";
+            transaction->state = Transaction::State::UnableToConnect;
             transaction->Complete();
             return transaction;
         }
@@ -495,4 +515,28 @@ namespace Http {
             return nullptr;
         }
     }
+
+    void PrintTo(
+        const Http::Client::Transaction::State& state,
+        std::ostream* os
+    ) {
+        switch (state) {
+            case Http::Client::Transaction::State::InProgress: {
+                *os << "In Progress";
+            } break;
+            case Http::Client::Transaction::State::Completed: {
+                *os << "Completed";
+            } break;
+            case Http::Client::Transaction::State::UnableToConnect: {
+                *os << "UNABLE TO CONNECT";
+            } break;
+            case Http::Client::Transaction::State::Broken: {
+                *os << "BROKEN";
+            } break;
+            default: {
+                *os << "???";
+            };
+        }
+    }
+
 }
