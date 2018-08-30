@@ -89,6 +89,9 @@ namespace Http {
 
             // Properties
 
+            /**
+             * This indicates how far along the transaction is.
+             */
             State state = State::InProgress;
 
             /**
