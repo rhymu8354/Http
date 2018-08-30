@@ -7,6 +7,7 @@
  */
 
 #include <condition_variable>
+#include <functional>
 #include <Http/Client.hpp>
 #include <Http/Connection.hpp>
 #include <inttypes.h>
@@ -372,6 +373,11 @@ namespace Http {
          */
         std::map< std::string, std::shared_ptr< ClientConnectionState > > persistentConnections;
 
+        /**
+         * This is used to synchronize access to the object.
+         */
+        std::mutex mutex;
+
         // Methods
 
         /**
@@ -424,47 +430,59 @@ namespace Http {
             port
         );
         std::shared_ptr< ClientConnectionState > connectionState;
-        const auto persistentConnectionsEntry = impl_->persistentConnections.find(serverId);
-        if (persistentConnectionsEntry == impl_->persistentConnections.end()) {
-            connectionState = std::make_shared< ClientConnectionState >();
-            std::weak_ptr< ClientConnectionState > connectionStateWeak(connectionState);
-            connectionState->connection = impl_->transport->Connect(
-                hostNameOrAddress,
-                port,
-                [connectionStateWeak](const std::vector< uint8_t >& data){
+        {
+            std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+            const auto persistentConnectionsEntry = impl_->persistentConnections.find(serverId);
+            if (persistentConnectionsEntry == impl_->persistentConnections.end()) {
+                connectionState = std::make_shared< ClientConnectionState >();
+                std::weak_ptr< ClientConnectionState > connectionStateWeak(connectionState);
+                const auto brokenDelegate = [this, connectionStateWeak, serverId]{
                     const auto connectionState = connectionStateWeak.lock();
                     if (connectionState == nullptr) {
                         return;
                     }
-                    std::shared_ptr< TransactionImpl > transaction;
-                    {
-                        std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
-                        transaction = connectionState->currentTransaction.lock();
+                    std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+                    (void)impl_->persistentConnections.erase(serverId);
+                };
+                connectionState->connection = impl_->transport->Connect(
+                    hostNameOrAddress,
+                    port,
+                    [connectionStateWeak](const std::vector< uint8_t >& data){
+                        const auto connectionState = connectionStateWeak.lock();
+                        if (connectionState == nullptr) {
+                            return;
+                        }
+                        std::shared_ptr< TransactionImpl > transaction;
+                        {
+                            std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
+                            transaction = connectionState->currentTransaction.lock();
+                        }
+                        if (transaction == nullptr) {
+                            return;
+                        }
+                        transaction->DataReceived(data);
+                    },
+                    [connectionStateWeak, brokenDelegate](bool){
+                        const auto connectionState = connectionStateWeak.lock();
+                        if (connectionState == nullptr) {
+                            return;
+                        }
+                        std::shared_ptr< TransactionImpl > transaction;
+                        {
+                            std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
+                            transaction = connectionState->currentTransaction.lock();
+                        }
+                        if (transaction == nullptr) {
+                            return;
+                        }
+                        transaction->state = Transaction::State::Broken;
+                        transaction->Complete();
+                        brokenDelegate();
                     }
-                    if (transaction == nullptr) {
-                        return;
-                    }
-                    transaction->DataReceived(data);
-                },
-                [connectionStateWeak](bool){
-                    const auto connectionState = connectionStateWeak.lock();
-                    if (connectionState == nullptr) {
-                        return;
-                    }
-                    std::shared_ptr< TransactionImpl > transaction;
-                    {
-                        std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
-                        transaction = connectionState->currentTransaction.lock();
-                    }
-                    if (transaction == nullptr) {
-                        return;
-                    }
-                    transaction->state = Transaction::State::Broken;
-                    transaction->Complete();
-                }
-            );
-        } else {
-            connectionState = persistentConnectionsEntry->second;
+                );
+            } else {
+                connectionState = persistentConnectionsEntry->second;
+            }
         }
         {
             std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
@@ -483,10 +501,15 @@ namespace Http {
         }
         const auto requestEncoding = request.Generate();
         connectionState->connection->SendData({requestEncoding.begin(), requestEncoding.end()});
-        if (persistConnection) {
-            impl_->persistentConnections[serverId] = connectionState;
-        } else {
-            (void)impl_->persistentConnections.erase(serverId);
+        {
+            std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+            if (persistConnection) {
+                impl_->persistentConnections[serverId] = connectionState;
+            } else {
+                (void)impl_->persistentConnections.erase(serverId);
+            }
+        }
+        if (!persistConnection) {
             connectionState->connection->Break(true);
         }
         return transaction;

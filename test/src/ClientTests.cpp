@@ -913,3 +913,45 @@ TEST_F(ClientTests, SimpleGetRequestConnectionRefused) {
     ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
     EXPECT_EQ(Http::Client::Transaction::State::UnableToConnect, transaction->state);
 }
+
+TEST_F(ClientTests, BrokenPersistentConnectionNotReused) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    transport->connectionsAllowed = 2;
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request, using a persistent connection.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    auto transaction = client.Request(outgoingRequest, true);
+    auto connection = transport->connections[0];
+    auto incomingRequest = connection->requests[0];
+    EXPECT_FALSE(connection->broken);
+    EXPECT_FALSE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
+
+    // Break the connection from the server end.
+    ASSERT_FALSE(connection->brokenDelegate == nullptr);
+    connection->brokenDelegate(false);
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+
+    // Have the client make another simple request to the same server.
+    // Expect a new connection to be made.
+    outgoingRequest = Http::Request();
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/bar");
+    transaction = client.Request(outgoingRequest);
+    ASSERT_FALSE(transaction == nullptr);
+    ASSERT_TRUE(transport->AwaitConnections(2));
+    connection = transport->connections[1];
+    ASSERT_TRUE(connection->AwaitRequests(1));
+    incomingRequest = connection->requests[0];
+    EXPECT_EQ("GET", incomingRequest.method);
+    EXPECT_EQ((std::vector< std::string >{"", "bar"}), incomingRequest.target.GetPath());
+    EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
+}
