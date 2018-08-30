@@ -343,7 +343,7 @@ struct ClientTests
     }
 };
 
-TEST_F(ClientTests, ParseGetRequest) {
+TEST_F(ClientTests, ParseGetResponse) {
     const auto response = client.ParseResponse(
         "HTTP/1.1 200 OK\r\n"
         "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n"
@@ -370,7 +370,7 @@ TEST_F(ClientTests, ParseGetRequest) {
     ASSERT_EQ("Hello World! My payload includes a trailing CRLF.\r\n", response->body);
 }
 
-TEST_F(ClientTests, ParseIncompleteBodyRequest) {
+TEST_F(ClientTests, ParseIncompleteBodyResponse) {
     const auto response = client.ParseResponse(
         "HTTP/1.1 200 OK\r\n"
         "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n"
@@ -387,7 +387,7 @@ TEST_F(ClientTests, ParseIncompleteBodyRequest) {
     ASSERT_TRUE(response == nullptr);
 }
 
-TEST_F(ClientTests, ParseIncompleteHeadersBetweenLinesRequest) {
+TEST_F(ClientTests, ParseIncompleteHeadersBetweenLinesResponse) {
     const auto response = client.ParseResponse(
         "HTTP/1.1 200 OK\r\n"
         "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n"
@@ -398,7 +398,7 @@ TEST_F(ClientTests, ParseIncompleteHeadersBetweenLinesRequest) {
     ASSERT_TRUE(response == nullptr);
 }
 
-TEST_F(ClientTests, ParseIncompleteHeadersMidLineRequest) {
+TEST_F(ClientTests, ParseIncompleteHeadersMidLineResponse) {
     const auto response = client.ParseResponse(
         "HTTP/1.1 200 OK\r\n"
         "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n"
@@ -415,7 +415,7 @@ TEST_F(ClientTests, ParseIncompleteStatusLine) {
     ASSERT_TRUE(response == nullptr);
 }
 
-TEST_F(ClientTests, ParseNoHeadersRequest) {
+TEST_F(ClientTests, ParseNoHeadersResponse) {
     const auto response = client.ParseResponse(
         "HTTP/1.1 200 OK\r\n"
     );
