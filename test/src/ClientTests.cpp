@@ -622,7 +622,7 @@ TEST_F(ClientTests, SimpleGetRequestFragmentedResponse) {
     EXPECT_EQ("PogChamp", transaction->response.body);
 }
 
-TEST_F(ClientTests, ConnectionReleasedAfterTransactionCompleted) {
+TEST_F(ClientTests, NonPersistentConnectionReleasedAfterTransactionCompleted) {
     // Set up the client.
     const auto transport = std::make_shared< MockTransport >();
     Http::Client::MobilizationDependencies deps;
@@ -676,8 +676,9 @@ TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
     const auto& incomingRequest = connection->requests[0];
     EXPECT_TRUE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
     EXPECT_TRUE(connection->broken);
-    connection->broken = false;
     EXPECT_TRUE(connection->brokenGracefully);
+    connection->broken = false;
+    connection->brokenGracefully = false;
 
     // Provide a response back to the client, in one piece.
     Http::Response response;
@@ -695,6 +696,6 @@ TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
     ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
 
     // Wait for the client to close their end of the connection.
-    ASSERT_TRUE(connection->AwaitBroken());
-    ASSERT_FALSE(connection->brokenGracefully);
+    EXPECT_TRUE(connection->broken);
+    EXPECT_FALSE(connection->brokenGracefully);
 }
