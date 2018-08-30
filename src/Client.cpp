@@ -354,7 +354,10 @@ namespace Http {
         impl_->mobilized = true;
     }
 
-    auto Client::Request(Http::Request request) -> std::shared_ptr< Transaction > {
+    auto Client::Request(
+        Http::Request request,
+        bool persistConnection
+    ) -> std::shared_ptr< Transaction > {
         const auto transaction = std::make_shared< TransactionImpl >();
         const auto& hostNameOrAddress = request.target.GetHost();
         auto port = DEFAULT_HTTP_PORT_NUMBER;

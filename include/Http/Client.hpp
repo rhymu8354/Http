@@ -137,10 +137,18 @@ namespace Http {
          *     This is the request to make.  The server's address
          *     is obtained from the request's target URI.
          *
+         * @param[in] persistConnection
+         *     This flag indicates whether or not the connection used to
+         *     communicate with the server should be kept open after the
+         *     request, possibly to be reused in subsequent requests.
+         *
          * @return
          *     An object representing the resource request is returned.
          */
-        std::shared_ptr< Transaction > Request(Http::Request request);
+        std::shared_ptr< Transaction > Request(
+            Http::Request request,
+            bool persistConnection = true
+        );
 
         /**
          * This method stops processing of server connections,

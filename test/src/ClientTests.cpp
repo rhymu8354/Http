@@ -634,7 +634,7 @@ TEST_F(ClientTests, ConnectionReleasedAfterTransactionCompleted) {
     Http::Request outgoingRequest;
     outgoingRequest.method = "GET";
     outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
-    const auto transaction = client.Request(outgoingRequest);
+    const auto transaction = client.Request(outgoingRequest, false);
     auto connection = transport->connections[0];
     const auto& incomingRequest = connection->requests[0];
 
@@ -671,7 +671,7 @@ TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
     Http::Request outgoingRequest;
     outgoingRequest.method = "GET";
     outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
-    const auto transaction = client.Request(outgoingRequest);
+    const auto transaction = client.Request(outgoingRequest, false);
     auto connection = transport->connections[0];
     const auto& incomingRequest = connection->requests[0];
     EXPECT_TRUE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
