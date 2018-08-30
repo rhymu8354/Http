@@ -9,7 +9,10 @@
 #include <condition_variable>
 #include <Http/Client.hpp>
 #include <Http/Connection.hpp>
+#include <inttypes.h>
 #include <limits>
+#include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <sstream>
@@ -198,15 +201,49 @@ namespace {
         return messageEnd;
     }
 
+    /**
+     * This holds onto all the information that a client has about
+     * a connection to a server.
+     */
+    struct ConnectionState {
+        /**
+         * This is the connection to the server.
+         */
+        std::shared_ptr< Http::Connection > connection;
+
+        /**
+         * This refers to the current transaction (if any) that is
+         * currently being made through the connection.
+         */
+        std::weak_ptr< struct TransactionImpl > currentTransaction;
+
+        /**
+         * This is used to synchronize access to this object.
+         */
+        std::mutex mutex;
+    };
+
+    /**
+     * This is a client transaction structure that contains the additional
+     * properties and methods required by the client's implementation.
+     */
     struct TransactionImpl
         : public Http::Client::Transaction
     {
         // Properties
 
         /**
-         * This is the connection to the server.
+         * This is the state of the connection to the server
+         * used by this transaction.
          */
-        std::shared_ptr< Http::Connection > connection;
+        std::shared_ptr< ConnectionState > connectionState;
+
+        /**
+         * This flag indicates whether or not the connection used to
+         * communicate with the server should be kept open after the
+         * request, possibly to be reused in subsequent requests.
+         */
+        bool persistConnection = false;
 
         /**
          * This flag indicates whether or not the transaction is complete.
@@ -246,8 +283,13 @@ namespace {
          */
         void CompleteWithLock() {
             complete = true;
-            connection->Break(false);
-            connection = nullptr;
+            if (
+                (connectionState != nullptr)
+                && !persistConnection
+            ) {
+                connectionState->connection->Break(false);
+            }
+            connectionState = nullptr;
             stateChange.notify_all();
         }
 
@@ -318,6 +360,11 @@ namespace Http {
          */
         std::shared_ptr< TimeKeeper > timeKeeper;
 
+        /**
+         * This is used to hold onto persistent connections to servers.
+         */
+        std::map< std::string, std::shared_ptr< ConnectionState > > persistentConnections;
+
         // Methods
 
         /**
@@ -364,30 +411,64 @@ namespace Http {
         if (request.target.HasPort()) {
             port = request.target.GetPort();
         }
-        std::weak_ptr< TransactionImpl > transactionWeak(transaction);
-        transaction->connection = impl_->transport->Connect(
-            hostNameOrAddress,
-            port,
-            [transactionWeak](const std::vector< uint8_t >& data){
-                const auto transaction = transactionWeak.lock();
-                if (transaction == nullptr) {
-                    return;
-                }
-                transaction->DataReceived(data);
-            },
-            [](bool){
-            }
+        const auto serverId = SystemAbstractions::sprintf(
+            "%s:%" PRIu16,
+            hostNameOrAddress.c_str(),
+            port
         );
-        if (transaction->connection == nullptr) {
+        std::shared_ptr< ConnectionState > connectionState;
+        const auto persistentConnectionsEntry = impl_->persistentConnections.find(serverId);
+        if (persistentConnectionsEntry == impl_->persistentConnections.end()) {
+            connectionState = std::make_shared< ConnectionState >();
+            std::weak_ptr< ConnectionState > connectionStateWeak(connectionState);
+            connectionState->connection = impl_->transport->Connect(
+                hostNameOrAddress,
+                port,
+                [connectionStateWeak](const std::vector< uint8_t >& data){
+                    const auto connectionState = connectionStateWeak.lock();
+                    if (connectionState == nullptr) {
+                        return;
+                    }
+                    std::shared_ptr< TransactionImpl > transaction;
+                    {
+                        std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
+                        transaction = connectionState->currentTransaction.lock();
+                    }
+                    if (transaction == nullptr) {
+                        return;
+                    }
+                    transaction->DataReceived(data);
+                },
+                [](bool){
+                }
+            );
+        } else {
+            connectionState = persistentConnectionsEntry->second;
+        }
+        {
+            std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
+            connectionState->currentTransaction = transaction;
+        }
+        transaction->connectionState = connectionState;
+        if (connectionState->connection == nullptr) {
             transaction->response.statusCode = 503;
             transaction->response.reasonPhrase = "Service Unavailable";
             transaction->Complete();
+            return transaction;
         }
+        transaction->persistConnection = persistConnection;
         request.headers.SetHeader("Host", hostNameOrAddress);
-        request.headers.SetHeader("Connection", "Close");
+        if (!persistConnection) {
+            request.headers.SetHeader("Connection", "Close");
+        }
         const auto requestEncoding = request.Generate();
-        transaction->connection->SendData({requestEncoding.begin(), requestEncoding.end()});
-        transaction->connection->Break(true);
+        connectionState->connection->SendData({requestEncoding.begin(), requestEncoding.end()});
+        if (persistConnection) {
+            impl_->persistentConnections[serverId] = connectionState;
+        } else {
+            (void)impl_->persistentConnections.erase(serverId);
+            connectionState->connection->Break(true);
+        }
         return transaction;
     }
 

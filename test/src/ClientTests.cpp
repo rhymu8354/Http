@@ -699,3 +699,168 @@ TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
     EXPECT_TRUE(connection->broken);
     EXPECT_FALSE(connection->brokenGracefully);
 }
+
+TEST_F(ClientTests, TwoRequestsSameServerReusesPersistentConnection) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request, using a persistent connection.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    auto transaction = client.Request(outgoingRequest, true);
+    const auto& connection = transport->connections[0];
+    auto incomingRequest = connection->requests[0];
+    EXPECT_FALSE(connection->broken);
+    EXPECT_FALSE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
+
+    // Provide a response back to the client, in one piece.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "8");
+    response.body = "PogChamp";
+    auto responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+
+    // Have the client make another simple request to the same server.
+    // Expect the same connection to be reused.
+    outgoingRequest = Http::Request();
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/bar");
+    transaction = client.Request(outgoingRequest);
+    ASSERT_FALSE(transaction == nullptr);
+    ASSERT_FALSE(transport->AwaitConnections(2));
+    ASSERT_TRUE(connection->AwaitRequests(2));
+    incomingRequest = connection->requests[1];
+    EXPECT_EQ("GET", incomingRequest.method);
+    EXPECT_EQ((std::vector< std::string >{"", "bar"}), incomingRequest.target.GetPath());
+    EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
+
+    // Provide a response back to the client, in one piece.
+    response = Http::Response();
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Hello");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "7");
+    response.body = "Poggers";
+    responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(200, transaction->response.statusCode);
+    EXPECT_EQ("OK", transaction->response.reasonPhrase);
+    EXPECT_EQ("Hello", transaction->response.headers.GetHeaderValue("Foo"));
+    EXPECT_EQ("text/plain", transaction->response.headers.GetHeaderValue("Content-Type"));
+    EXPECT_EQ("7", transaction->response.headers.GetHeaderValue("Content-Length"));
+    EXPECT_EQ("Poggers", transaction->response.body);
+}
+
+TEST_F(ClientTests, SecondRequestNonPersistentWithPersistentConnectionClosesConnection) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    transport->connectionsAllowed = 2;
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request, using a persistent connection.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    auto transaction = client.Request(outgoingRequest, true);
+    auto connection = transport->connections[0];
+
+    // Provide a response back to the client, in one piece.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "8");
+    response.body = "PogChamp";
+    auto responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+
+    // Have the client make another simple request to the same server,
+    // this time with a non-persistent connection.
+    outgoingRequest = Http::Request();
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/bar");
+    transaction = client.Request(outgoingRequest, false);
+    ASSERT_TRUE(connection->AwaitRequests(2));
+    EXPECT_TRUE(connection->broken);
+    EXPECT_TRUE(connection->brokenGracefully);
+    connection->broken = false;
+    connection->brokenGracefully = false;
+    auto incomingRequest = connection->requests[1];
+    EXPECT_TRUE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
+
+    // Provide a response back to the client, in one piece.
+    response = Http::Response();
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Hello");
+    response.headers.SetHeader("Connection", "Close");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "7");
+    response.body = "Poggers";
+    responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_TRUE(connection->broken);
+    EXPECT_FALSE(connection->brokenGracefully);
+    connection->Break(false);
+
+    // Have the client make a third simple request to the same server.
+    // Expect a new connection to be made this time.
+    outgoingRequest = Http::Request();
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/spam");
+    transaction = client.Request(outgoingRequest);
+    ASSERT_FALSE(transaction == nullptr);
+    ASSERT_TRUE(transport->AwaitConnections(2));
+    connection = transport->connections[1];
+    ASSERT_TRUE(connection->AwaitRequests(1));
+    incomingRequest = connection->requests[0];
+    EXPECT_EQ("GET", incomingRequest.method);
+    EXPECT_EQ((std::vector< std::string >{"", "spam"}), incomingRequest.target.GetPath());
+    EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
+
+    // Provide a response back to the client, in one piece.
+    response = Http::Response();
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "FeelsBadMan");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "7");
+    response.body = "HeyGuys";
+    responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(200, transaction->response.statusCode);
+    EXPECT_EQ("OK", transaction->response.reasonPhrase);
+    EXPECT_EQ("FeelsBadMan", transaction->response.headers.GetHeaderValue("Foo"));
+    EXPECT_EQ("text/plain", transaction->response.headers.GetHeaderValue("Content-Type"));
+    EXPECT_EQ("7", transaction->response.headers.GetHeaderValue("Content-Length"));
+    EXPECT_EQ("HeyGuys", transaction->response.body);
+}
