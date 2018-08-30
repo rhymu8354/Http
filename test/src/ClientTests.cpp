@@ -621,3 +621,80 @@ TEST_F(ClientTests, SimpleGetRequestFragmentedResponse) {
     EXPECT_EQ("8", transaction->response.headers.GetHeaderValue("Content-Length"));
     EXPECT_EQ("PogChamp", transaction->response.body);
 }
+
+TEST_F(ClientTests, ConnectionReleasedAfterTransactionCompleted) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    const auto transaction = client.Request(outgoingRequest);
+    auto connection = transport->connections[0];
+    const auto& incomingRequest = connection->requests[0];
+
+    // Provide a response back to the client, in one piece.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "8");
+    response.body = "PogChamp";
+    const auto& responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+
+    // Verify the connection was released.
+    std::weak_ptr< MockConnection > connectionWeak(connection);
+    connection = nullptr;
+    transport->connections.clear();
+    ASSERT_TRUE(connectionWeak.lock() == nullptr);
+}
+
+TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    const auto transaction = client.Request(outgoingRequest);
+    auto connection = transport->connections[0];
+    const auto& incomingRequest = connection->requests[0];
+    EXPECT_TRUE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
+    EXPECT_TRUE(connection->broken);
+    connection->broken = false;
+    EXPECT_TRUE(connection->brokenGracefully);
+
+    // Provide a response back to the client, in one piece.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Connection", "Close");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "8");
+    response.body = "PogChamp";
+    const auto& responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+
+    // Wait for the client to close their end of the connection.
+    ASSERT_TRUE(connection->AwaitBroken());
+    ASSERT_FALSE(connection->brokenGracefully);
+}

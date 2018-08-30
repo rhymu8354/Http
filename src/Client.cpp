@@ -246,6 +246,8 @@ namespace {
          */
         void CompleteWithLock() {
             complete = true;
+            connection->Break(false);
+            connection = nullptr;
             stateChange.notify_all();
         }
 
@@ -379,8 +381,10 @@ namespace Http {
             transaction->Complete();
         }
         request.headers.SetHeader("Host", hostNameOrAddress);
+        request.headers.SetHeader("Connection", "Close");
         const auto requestEncoding = request.Generate();
         transaction->connection->SendData({requestEncoding.begin(), requestEncoding.end()});
+        transaction->connection->Break(true);
         return transaction;
     }
 
