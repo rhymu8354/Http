@@ -33,6 +33,15 @@ namespace Http {
      * and parse HTTP responses received back from web servers.
      */
     class Client {
+        // Public Properties
+
+        /**
+         * This is the default amount of time that can pass without receiving
+         * any data at all from a server, before the client considers the
+         * connection to be timed out.
+         */
+        static constexpr double DEFAULT_REQUEST_TIMEOUT_SECONDS = 10.0;
+
         // Types
     public:
         /**
@@ -50,6 +59,13 @@ namespace Http {
              * This is the object used to track time in the client.
              */
             std::shared_ptr< TimeKeeper > timeKeeper;
+
+            /**
+             * This is the amount of time after a request is made
+             * of a server, before the transaction is considered timed out
+             * if no part of a response has been received.
+             */
+            double requestTimeoutSeconds = DEFAULT_REQUEST_TIMEOUT_SECONDS;
         };
 
         /**
@@ -85,6 +101,12 @@ namespace Http {
                  * could be received.
                  */
                 Broken,
+
+                /**
+                 * The connection timed out waiting for a response
+                 * from the server.
+                 */
+                Timeout,
             };
 
             // Properties

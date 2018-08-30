@@ -955,3 +955,47 @@ TEST_F(ClientTests, BrokenPersistentConnectionNotReused) {
     EXPECT_EQ((std::vector< std::string >{"", "bar"}), incomingRequest.target.GetPath());
     EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
 }
+
+TEST_F(ClientTests, ResponseTimeoutPersistentConnectionNotReused) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    transport->connectionsAllowed = 2;
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    deps.requestTimeoutSeconds = 1.0;
+    client.Mobilize(deps);
+
+    // Have the client make a simple request, using a persistent connection.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    auto transaction = client.Request(outgoingRequest, true);
+    auto connection = transport->connections[0];
+    auto incomingRequest = connection->requests[0];
+    EXPECT_FALSE(connection->broken);
+    EXPECT_FALSE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
+
+    // Allow enough time to pass such that the request will time out.
+    timeKeeper->currentTime = 1.5;
+
+    // Wait for client transaction to complete, expecting a timeout.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::Timeout, transaction->state);
+
+    // Have the client make another simple request to the same server.
+    // Expect a new connection to be made.
+    outgoingRequest = Http::Request();
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/bar");
+    transaction = client.Request(outgoingRequest);
+    ASSERT_FALSE(transaction == nullptr);
+    ASSERT_TRUE(transport->AwaitConnections(2));
+    connection = transport->connections[1];
+    ASSERT_TRUE(connection->AwaitRequests(1));
+    incomingRequest = connection->requests[0];
+    EXPECT_EQ("GET", incomingRequest.method);
+    EXPECT_EQ((std::vector< std::string >{"", "bar"}), incomingRequest.target.GetPath());
+    EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
+}

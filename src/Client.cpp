@@ -15,10 +15,12 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <sstream>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <SystemAbstractions/StringExtensions.hpp>
+#include <thread>
 
 namespace {
 
@@ -34,6 +36,12 @@ namespace {
      * the HTTP protocol and scheme.
      */
     constexpr uint16_t DEFAULT_HTTP_PORT_NUMBER = 80;
+
+    /**
+     * This is the number of milliseconds to wait between rounds of polling
+     * connections to check for timeouts.
+     */
+    constexpr unsigned int CONNECTION_POLLING_PERIOD_MILLISECONDS = 50;
 
     /**
      * This method parses the protocol identifier, status code,
@@ -225,6 +233,13 @@ namespace {
         std::weak_ptr< struct TransactionImpl > currentTransaction;
 
         /**
+         * This is the time at which the connection was established,
+         * or the last data was received from the server, whichever
+         * was most recent.
+         */
+        double lastReceiveTime = 0.0;
+
+        /**
          * This is used to synchronize access to this object.
          */
         std::mutex mutex;
@@ -369,6 +384,13 @@ namespace Http {
         std::shared_ptr< TimeKeeper > timeKeeper;
 
         /**
+         * This is the amount of time after a request is made
+         * of a server, before the transaction is considered timed out
+         * if no part of a response has been received.
+         */
+        double requestTimeoutSeconds = DEFAULT_REQUEST_TIMEOUT_SECONDS;
+
+        /**
          * This is used to hold onto persistent connections to servers.
          */
         std::map< std::string, std::shared_ptr< ClientConnectionState > > persistentConnections;
@@ -378,6 +400,33 @@ namespace Http {
          */
         std::mutex mutex;
 
+        /**
+         * This is used to wake up the worker thread.
+         */
+        std::condition_variable workerWakeCondition;
+
+        /**
+         * This flag indicates whether or not the worker thread should stop.
+         */
+        bool stopWorker = false;
+
+        /**
+         * This thread performs background housekeeping for the client, such as:
+         * - Drop any persistent connections which have broken.
+         * - Complete any transactions that have timed out.
+         */
+        std::thread worker;
+
+        // Lifecycle management
+
+        ~Impl() noexcept {
+            Demobilize();
+        }
+        Impl(const Impl&) = delete;
+        Impl(Impl&&) noexcept = delete;
+        Impl& operator=(const Impl&) = delete;
+        Impl& operator=(Impl&&) noexcept = delete;
+
         // Methods
 
         /**
@@ -386,6 +435,79 @@ namespace Http {
         Impl()
             : diagnosticsSender("Http::Client")
         {
+        }
+
+        /**
+         * This method should be called when the client is mobilized,
+         * in order to start background housekeeping.
+         */
+        void Mobilize() {
+            if (!worker.joinable()) {
+                stopWorker = false;
+                worker = std::thread(&Impl::Worker, this);
+            }
+        }
+
+        /**
+         * This method should be called when the client is demobilized,
+         * in order to stop background housekeeping.
+         */
+        void Demobilize() {
+            if (worker.joinable()) {
+                {
+                    std::lock_guard< decltype(mutex) > lock(mutex);
+                    stopWorker = true;
+                    workerWakeCondition.notify_all();
+                }
+                worker.join();
+            }
+        }
+
+        /**
+         * This thread performs background housekeeping for the client, such as:
+         * - Drop any persistent connections which have broken.
+         * - Complete any transactions that have timed out.
+         */
+        void Worker() {
+            std::unique_lock< decltype(mutex) > lock(mutex);
+            while (!stopWorker) {
+                (void)workerWakeCondition.wait_for(
+                    lock,
+                    std::chrono::milliseconds(CONNECTION_POLLING_PERIOD_MILLISECONDS),
+                    [this]{ return stopWorker; }
+                );
+                const auto now = timeKeeper->GetCurrentTime();
+                std::set< std::shared_ptr< ClientConnectionState > > timedOutConnectionStates;
+                for (
+                    auto persistentConnectionsEntry = persistentConnections.begin();
+                    persistentConnectionsEntry != persistentConnections.end();
+                ) {
+                    auto persistentConnection = persistentConnectionsEntry->second;
+                    if (now - persistentConnection->lastReceiveTime >= requestTimeoutSeconds) {
+                        (void)timedOutConnectionStates.insert(persistentConnection);
+                        persistentConnectionsEntry = persistentConnections.erase(persistentConnectionsEntry);
+                    } else {
+                        ++persistentConnectionsEntry;
+                    }
+                }
+                {
+                    lock.unlock();
+                    for (auto connectionState: timedOutConnectionStates) {
+                        std::shared_ptr< TransactionImpl > transaction;
+                        {
+                            std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
+                            transaction = connectionState->currentTransaction.lock();
+                        }
+                        if (transaction == nullptr) {
+                            return;
+                        }
+                        transaction->state = Transaction::State::Timeout;
+                        transaction->Complete();
+                    }
+                    timedOutConnectionStates.clear();
+                    lock.lock();
+                }
+            }
         }
     };
 
@@ -411,7 +533,9 @@ namespace Http {
         }
         impl_->transport = deps.transport;
         impl_->timeKeeper = deps.timeKeeper;
+        impl_->requestTimeoutSeconds = deps.requestTimeoutSeconds;
         impl_->mobilized = true;
+        impl_->Mobilize();
     }
 
     auto Client::Request(
@@ -435,6 +559,7 @@ namespace Http {
             const auto persistentConnectionsEntry = impl_->persistentConnections.find(serverId);
             if (persistentConnectionsEntry == impl_->persistentConnections.end()) {
                 connectionState = std::make_shared< ClientConnectionState >();
+                connectionState->lastReceiveTime = impl_->timeKeeper->GetCurrentTime();
                 std::weak_ptr< ClientConnectionState > connectionStateWeak(connectionState);
                 const auto brokenDelegate = [this, connectionStateWeak, serverId]{
                     const auto connectionState = connectionStateWeak.lock();
@@ -444,14 +569,16 @@ namespace Http {
                     std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
                     (void)impl_->persistentConnections.erase(serverId);
                 };
+                auto timeKeeper = impl_->timeKeeper;
                 connectionState->connection = impl_->transport->Connect(
                     hostNameOrAddress,
                     port,
-                    [connectionStateWeak](const std::vector< uint8_t >& data){
+                    [connectionStateWeak, timeKeeper](const std::vector< uint8_t >& data){
                         const auto connectionState = connectionStateWeak.lock();
                         if (connectionState == nullptr) {
                             return;
                         }
+                        connectionState->lastReceiveTime = timeKeeper->GetCurrentTime();
                         std::shared_ptr< TransactionImpl > transaction;
                         {
                             std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
@@ -516,6 +643,7 @@ namespace Http {
     }
 
     void Client::Demobilize() {
+        impl_->Demobilize();
         impl_->timeKeeper = nullptr;
         impl_->transport = nullptr;
         impl_->mobilized = false;
@@ -555,6 +683,9 @@ namespace Http {
             } break;
             case Http::Client::Transaction::State::Broken: {
                 *os << "BROKEN";
+            } break;
+            case Http::Client::Transaction::State::Timeout: {
+                *os << "TIMED OUT";
             } break;
             default: {
                 *os << "???";
