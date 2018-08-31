@@ -568,7 +568,7 @@ TEST_F(ClientTests, SimpleGetRequestOnePieceResponse) {
     // Have the client make a simple request.
     Http::Request outgoingRequest;
     outgoingRequest.method = "GET";
-    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    outgoingRequest.target.ParseFromString("http://PePe@www.example.com:1234/foo?abc#def");
     const auto transaction = client.Request(outgoingRequest);
     ASSERT_FALSE(transaction == nullptr);
     EXPECT_EQ(Http::Client::Transaction::State::InProgress, transaction->state);
@@ -579,7 +579,13 @@ TEST_F(ClientTests, SimpleGetRequestOnePieceResponse) {
     ASSERT_TRUE(connection->AwaitRequests(1));
     const auto& incomingRequest = connection->requests[0];
     EXPECT_EQ("GET", incomingRequest.method);
+    EXPECT_TRUE(incomingRequest.target.IsRelativeReference());
+    EXPECT_TRUE(incomingRequest.target.GetHost().empty());
+    EXPECT_FALSE(incomingRequest.target.HasPort());
+    EXPECT_TRUE(incomingRequest.target.GetUserInfo().empty());
     EXPECT_EQ((std::vector< std::string >{"", "foo"}), incomingRequest.target.GetPath());
+    EXPECT_EQ("abc", incomingRequest.target.GetQuery());
+    EXPECT_EQ("def", incomingRequest.target.GetFragment());
     EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
 
     // Provide a response back to the client, in one piece.

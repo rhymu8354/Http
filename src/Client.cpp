@@ -633,6 +633,11 @@ namespace Http {
         if (!persistConnection) {
             request.headers.SetHeader("Connection", "Close");
         }
+        const auto originalTarget = request.target;
+        request.target = Uri::Uri();
+        request.target.SetPath(originalTarget.GetPath());
+        request.target.SetQuery(originalTarget.GetQuery());
+        request.target.SetFragment(originalTarget.GetFragment());
         const auto requestEncoding = request.Generate();
         connectionState->connection->SendData({requestEncoding.begin(), requestEncoding.end()});
         {
