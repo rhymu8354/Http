@@ -633,6 +633,8 @@ TEST_F(ClientTests, SimpleGetRequestFragmentedResponse) {
     EXPECT_EQ("GET", incomingRequest.method);
     EXPECT_EQ((std::vector< std::string >{"", "foo"}), incomingRequest.target.GetPath());
     EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
+    EXPECT_FALSE(incomingRequest.target.HasQuery());;
+    EXPECT_FALSE(incomingRequest.target.HasFragment());
 
     // Provide a response back to the client, in fragments.
     Http::Response response;
