@@ -304,14 +304,16 @@ namespace {
          * while we're holding the object's mutex.
          */
         void CompleteWithLock() {
+            if (complete) {
+                return;
+            }
             complete = true;
             const auto connection = connectionState->connection;
-            connectionState = nullptr;
             if (
-                (connection != nullptr)
+                (connectionState->connection != nullptr)
                 && !persistConnection
             ) {
-                connection->Break(false);
+                connectionState->connection->Break(false);
             }
             stateChange.notify_all();
         }
@@ -588,9 +590,6 @@ namespace Http {
                         if (transaction == nullptr) {
                             return;
                         }
-                        if (transaction->connectionState == nullptr) {
-                            return;
-                        }
                         transaction->DataReceived(data);
                     },
                     [connectionStateWeak, brokenDelegate](bool){
@@ -604,9 +603,6 @@ namespace Http {
                             transaction = connectionState->currentTransaction.lock();
                         }
                         if (transaction == nullptr) {
-                            return;
-                        }
-                        if (transaction->connectionState == nullptr) {
                             return;
                         }
                         transaction->state = Transaction::State::Broken;

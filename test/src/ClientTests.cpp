@@ -15,10 +15,22 @@
 #include <inttypes.h>
 #include <memory>
 #include <mutex>
+#include <stdlib.h>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <SystemAbstractions/StringExtensions.hpp>
 
 namespace {
+
+    /**
+     * This flag is used to cause a crash in MockConnection's destructor
+     * if it's called while the flag is set to true.
+     */
+    bool crashOnConnectionDestruction = false;
+
+    /**
+     * This flag is set whenever a MockConnection is destroyed.
+     */
+    bool connectionDestroyed = false;
 
     /**
      * This is a fake server connection which is used to test the client.
@@ -96,7 +108,12 @@ namespace {
         bool sendDataJustBeforeBreak = false;
 
         // Lifecycle management
-        ~MockConnection() noexcept = default;
+        ~MockConnection() noexcept {
+            if (crashOnConnectionDestruction) {
+                abort();
+            }
+            connectionDestroyed = true;
+        }
         MockConnection(const MockConnection&) = delete;
         MockConnection(MockConnection&&) noexcept = delete;
         MockConnection& operator=(const MockConnection&) = delete;
@@ -649,7 +666,7 @@ TEST_F(ClientTests, NonPersistentConnectionReleasedAfterTransactionCompleted) {
     Http::Request outgoingRequest;
     outgoingRequest.method = "GET";
     outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
-    const auto transaction = client.Request(outgoingRequest, false);
+    auto transaction = client.Request(outgoingRequest, false);
     auto connection = transport->connections[0];
     const auto& incomingRequest = connection->requests[0];
 
@@ -666,6 +683,9 @@ TEST_F(ClientTests, NonPersistentConnectionReleasedAfterTransactionCompleted) {
 
     // Wait for client transaction to complete.
     ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+
+    // Release the transaction (otherwise, it holds onto the connection).
+    transaction = nullptr;
 
     // Verify the connection was released.
     std::weak_ptr< MockConnection > connectionWeak(connection);
@@ -686,7 +706,7 @@ TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
     Http::Request outgoingRequest;
     outgoingRequest.method = "GET";
     outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
-    const auto transaction = client.Request(outgoingRequest, false);
+    auto transaction = client.Request(outgoingRequest, false);
     auto connection = transport->connections[0];
     connection->sendDataJustBeforeBreak = true;
     const auto& incomingRequest = connection->requests[0];
@@ -714,6 +734,19 @@ TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
     // Wait for the client to close their end of the connection.
     EXPECT_TRUE(connection->broken);
     EXPECT_FALSE(connection->brokenGracefully);
+
+    // Release all strong connection references, and verify the connection is not yet
+    // destroyed (through a global flag which causes the connection destructor to
+    // crash the test).
+    crashOnConnectionDestruction = true;
+    connection = nullptr;
+    transport->connections.clear();
+
+    // Release the transaction, and verify the connection is finally destroyed.
+    crashOnConnectionDestruction = false;
+    connectionDestroyed = false;
+    transaction = nullptr;
+    EXPECT_TRUE(connectionDestroyed);
 }
 
 TEST_F(ClientTests, TwoRequestsSameServerReusesPersistentConnection) {
