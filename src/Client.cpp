@@ -590,7 +590,9 @@ namespace Http {
                         if (transaction == nullptr) {
                             return;
                         }
-                        transaction->DataReceived(data);
+                        if (!transaction->complete) {
+                            transaction->DataReceived(data);
+                        }
                     },
                     [connectionStateWeak, brokenDelegate](bool){
                         const auto connectionState = connectionStateWeak.lock();
@@ -605,8 +607,10 @@ namespace Http {
                         if (transaction == nullptr) {
                             return;
                         }
-                        transaction->state = Transaction::State::Broken;
-                        transaction->Complete();
+                        if (!transaction->complete) {
+                            transaction->state = Transaction::State::Broken;
+                            transaction->Complete();
+                        }
                         brokenDelegate();
                     }
                 );

@@ -683,6 +683,7 @@ TEST_F(ClientTests, NonPersistentConnectionReleasedAfterTransactionCompleted) {
 
     // Wait for client transaction to complete.
     ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::Completed, transaction->state);
 
     // Release the transaction (otherwise, it holds onto the connection).
     transaction = nullptr;
