@@ -88,6 +88,13 @@ namespace {
          */
         bool brokenGracefully = false;
 
+        /**
+         * This flag indicates whether or not the mock connection
+         * should deliver some data right before breaking its end
+         * of the connection, when receiving an abrupt break.
+         */
+        bool sendDataJustBeforeBreak = false;
+
         // Lifecycle management
         ~MockConnection() noexcept = default;
         MockConnection(const MockConnection&) = delete;
@@ -181,6 +188,12 @@ namespace {
             broken = true;
             brokenGracefully = clean;
             waitCondition.notify_all();
+            if (!clean) {
+                if (sendDataJustBeforeBreak) {
+                    dataReceivedDelegate({42});
+                }
+                brokenDelegate(false);
+            }
         }
     };
 
@@ -675,6 +688,7 @@ TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
     outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
     const auto transaction = client.Request(outgoingRequest, false);
     auto connection = transport->connections[0];
+    connection->sendDataJustBeforeBreak = true;
     const auto& incomingRequest = connection->requests[0];
     EXPECT_TRUE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
     EXPECT_TRUE(connection->broken);

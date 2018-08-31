@@ -281,12 +281,12 @@ namespace {
         /**
          * This is used to synchronize access to the object.
          */
-        std::mutex mutex;
+        std::recursive_mutex mutex;
 
         /**
          * This is used to wait for various object state changes.
          */
-        std::condition_variable stateChange;
+        std::condition_variable_any stateChange;
 
         // Methods
 
@@ -305,13 +305,14 @@ namespace {
          */
         void CompleteWithLock() {
             complete = true;
+            const auto connection = connectionState->connection;
+            connectionState = nullptr;
             if (
-                (connectionState->connection != nullptr)
+                (connection != nullptr)
                 && !persistConnection
             ) {
-                connectionState->connection->Break(false);
+                connection->Break(false);
             }
-            connectionState = nullptr;
             stateChange.notify_all();
         }
 
@@ -587,6 +588,9 @@ namespace Http {
                         if (transaction == nullptr) {
                             return;
                         }
+                        if (transaction->connectionState == nullptr) {
+                            return;
+                        }
                         transaction->DataReceived(data);
                     },
                     [connectionStateWeak, brokenDelegate](bool){
@@ -600,6 +604,9 @@ namespace Http {
                             transaction = connectionState->currentTransaction.lock();
                         }
                         if (transaction == nullptr) {
+                            return;
+                        }
+                        if (transaction->connectionState == nullptr) {
                             return;
                         }
                         transaction->state = Transaction::State::Broken;
