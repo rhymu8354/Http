@@ -30,6 +30,12 @@ namespace Http {
          * This method establishes a new connection to a server with
          * the given address and port number.
          *
+         * @note
+         *     The object returned does not do anything for the
+         *     SetDataReceivedDelegate or SetBrokenDelegate
+         *     methods, since the delegates are specified directly
+         *     in this method.
+         *
          * @param[in] hostNameOrAddress
          *     This is the host name or IP address of the
          *     server to which to connect.
