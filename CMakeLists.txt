@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.8)
 set(This Http)
 
 set(Headers
+    include/Http/ChunkedBody.hpp
     include/Http/Client.hpp
     include/Http/ClientTransport.hpp
     include/Http/Connection.hpp
@@ -18,6 +19,7 @@ set(Headers
 )
 
 set(Sources
+    src/ChunkedBody.cpp
     src/Client.cpp
     src/Request.cpp
     src/Response.cpp

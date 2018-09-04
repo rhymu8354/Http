@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.8)
 set(This HttpTests)
 
 set(Sources
+    src/ChunkedBodyTests.cpp
     src/ClientTests.cpp
     src/RequestTests.cpp
     src/ResponseTests.cpp
