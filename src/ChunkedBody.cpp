@@ -268,7 +268,7 @@ namespace Http {
                     const auto reassembledInput = impl_->reassemblyBuffer.str();
                     if (reassembledInput.length() == chunkDataToCopyFromInput) {
                         impl_->decodedBody << reassembledInput;
-                        impl_->reassemblyBuffer.clear();
+                        impl_->reassemblyBuffer = std::ostringstream(OUTPUT_STRING_STREAM_OPEN_MODE);
                     } else {
                         impl_->decodedBody << reassembledInput.substr(0, chunkDataToCopyFromInput);
                         impl_->reassemblyBuffer = std::ostringstream(reassembledInput.substr(chunkDataToCopyFromInput), OUTPUT_STRING_STREAM_OPEN_MODE);
@@ -292,7 +292,7 @@ namespace Http {
                 }
                 charactersAccepted += CRLF.length();
                 impl_->reassemblyBuffer = std::ostringstream(reassembledInput.substr(CRLF.length()), OUTPUT_STRING_STREAM_OPEN_MODE);
-                impl_->state = State::DecodingTrailer;
+                impl_->state = State::DecodingChunks;
             }
             if (impl_->state == State::DecodingTrailer) {
                 // TODO: Actually decode trailers.  For now, we're assuming no trailers.

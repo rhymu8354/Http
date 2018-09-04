@@ -108,3 +108,32 @@ TEST_F(ChunkedBodyTests, DecodeSimpleEmptyBodyTwoPiecesSubstring) {
     ASSERT_EQ(Http::ChunkedBody::State::Complete, body.GetState());
     ASSERT_EQ("", (std::string)body);
 }
+
+TEST_F(ChunkedBodyTests, DecodeSimpleNonEmptyBodyOnePiece) {
+    ASSERT_EQ(15, body.Decode("5\r\nHello\r\n0\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Complete, body.GetState());
+    ASSERT_EQ("Hello", (std::string)body);
+}
+
+TEST_F(ChunkedBodyTests, DecodeSimpleNonEmptyBodyOneCharacterAtATime) {
+    const std::string input = "5\r\nHello\r\n0\r\n\r\n";
+    size_t index = 0;
+    for (auto c: input) {
+        ASSERT_EQ(1, body.Decode(std::string(1, c))) << index;
+        ++index;
+        if (index < 3) {
+            ASSERT_EQ(Http::ChunkedBody::State::DecodingChunks, body.GetState()) << index;
+        } else if (index < 8) {
+            ASSERT_EQ(Http::ChunkedBody::State::ReadingChunkData, body.GetState()) << index;
+        } else if (index < 10) {
+            ASSERT_EQ(Http::ChunkedBody::State::ReadingChunkDelimiter, body.GetState()) << index;
+        } else if (index < 13) {
+            ASSERT_EQ(Http::ChunkedBody::State::DecodingChunks, body.GetState()) << index;
+        } else if (index < 15) {
+            ASSERT_EQ(Http::ChunkedBody::State::DecodingTrailer, body.GetState()) << index;
+        } else {
+            ASSERT_EQ(Http::ChunkedBody::State::Complete, body.GetState()) << index;
+        }
+    }
+    ASSERT_EQ("Hello", (std::string)body);
+}
