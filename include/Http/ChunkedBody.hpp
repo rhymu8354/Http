@@ -9,6 +9,7 @@
  * © 2018 by Richard Walters
  */
 
+#include <MessageHeaders/MessageHeaders.hpp>
 #include <memory>
 #include <string>
 
@@ -123,6 +124,16 @@ namespace Http {
          *     The body as a string is returned.
          */
         operator std::string() const;
+
+        /**
+         * This method returns an object holding any trailers
+         * that were attached to the chunked body.
+         *
+         * @return
+         *     An object holding any trailers that were attached
+         *     to the chunked body is returned.
+         */
+        const MessageHeaders::MessageHeaders& GetTrailers() const;
 
         // Private properties
     private:

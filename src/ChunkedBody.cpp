@@ -193,6 +193,12 @@ namespace Http {
         std::ostringstream decodedBody;
 
         /**
+         * This holds any trailers that were attached
+         * to the chunked body.
+         */
+        MessageHeaders::MessageHeaders trailers;
+
+        /**
          * This is used to reassemble the encoded chunk before decoding it.
          */
         std::ostringstream reassemblyBuffer;
@@ -295,19 +301,28 @@ namespace Http {
                 impl_->state = State::DecodingChunks;
             }
             if (impl_->state == State::DecodingTrailer) {
-                // TODO: Actually decode trailers.  For now, we're assuming no trailers.
-                if ((size_t)impl_->reassemblyBuffer.tellp() < CRLF.length()) {
-                    charactersAccepted += impl_->reassemblyBuffer.tellp();
-                    break;
-                }
                 const auto reassembledInput = impl_->reassemblyBuffer.str();
-                if (reassembledInput.substr(0, CRLF.length()) != CRLF) {
-                    impl_->state = State::Error;
-                    break;
+                size_t charactersAcceptedByTrailer;
+                switch (
+                    impl_->trailers.ParseRawMessage(
+                        reassembledInput,
+                        charactersAcceptedByTrailer
+                    )
+                ) {
+                    case MessageHeaders::MessageHeaders::State::Complete: {
+                        impl_->state = State::Complete;
+                    } break;
+
+                    case MessageHeaders::MessageHeaders::State::Incomplete: {
+                    } break;
+
+                    case MessageHeaders::MessageHeaders::State::Error:
+                    default: {
+                        impl_->state = State::Error;
+                    } break;
                 }
-                charactersAccepted += CRLF.length();
-                impl_->reassemblyBuffer = std::ostringstream(reassembledInput.substr(CRLF.length()), OUTPUT_STRING_STREAM_OPEN_MODE);
-                impl_->state = State::Complete;
+                impl_->reassemblyBuffer = std::ostringstream(OUTPUT_STRING_STREAM_OPEN_MODE);
+                charactersAccepted += charactersAcceptedByTrailer;
             }
         }
         return charactersAccepted - charactersPreviouslyAccepted;
@@ -319,6 +334,10 @@ namespace Http {
 
     ChunkedBody::operator std::string() const {
         return impl_->decodedBody.str();
+    }
+
+    const MessageHeaders::MessageHeaders& ChunkedBody::GetTrailers() const {
+        return impl_->trailers;
     }
 
     void PrintTo(
