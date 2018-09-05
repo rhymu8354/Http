@@ -1538,11 +1538,12 @@ TEST_F(ServerTests, InactivityTimeout) {
     timeKeeper->currentTime = 2.000;
     ASSERT_TRUE(connection->AwaitResponse());
     Http::Client client;
+    std::string dataReceived(
+        connection->dataReceived.begin(),
+        connection->dataReceived.end()
+    );
     const auto response = client.ParseResponse(
-        std::string(
-            connection->dataReceived.begin(),
-            connection->dataReceived.end()
-        )
+        dataReceived
     );
     EXPECT_EQ(408, response->statusCode);
     EXPECT_EQ("Request Timeout", response->reasonPhrase);

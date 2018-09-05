@@ -108,11 +108,15 @@ namespace Http {
          * This method returns an indication of whether or not the response
          * has been fully constructed (valid or not).
          *
+         * @param[in] moreDataPossible
+         *     This flag indicates whether or not more data might be added
+         *     to the response.
+         *
          * @return
          *     An indication of whether or not the response
          *     has been fully constructed (valid or not) is returned.
          */
-        bool IsCompleteOrError() const;
+        bool IsCompleteOrError(bool moreDataPossible = true) const;
 
         /**
          * This method generates the data to transmit to the client

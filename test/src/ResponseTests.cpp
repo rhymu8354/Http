@@ -23,6 +23,15 @@ TEST(ResponseTests, IsCompleteOrError) {
     EXPECT_FALSE(response.IsCompleteOrError());
     response.state = Http::Response::State::Body;
     EXPECT_FALSE(response.IsCompleteOrError());
+    EXPECT_TRUE(response.IsCompleteOrError(false));
+    response = Http::Response();
+    response.headers.SetHeader("Content-Length", "42");
+    EXPECT_FALSE(response.IsCompleteOrError());
+    EXPECT_FALSE(response.IsCompleteOrError(false));
+    response = Http::Response();
+    response.headers.SetHeader("Transfer-Encoding", "chunked");
+    EXPECT_FALSE(response.IsCompleteOrError());
+    EXPECT_FALSE(response.IsCompleteOrError(false));
 }
 
 TEST(ResponseTests, GenerateGetResponse) {

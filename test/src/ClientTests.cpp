@@ -1110,3 +1110,70 @@ TEST_F(ClientTests, ResponseTimeoutPersistentConnectionNotReused) {
     EXPECT_EQ((std::vector< std::string >{"", "bar"}), incomingRequest.target.GetPath());
     EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
 }
+
+TEST_F(ClientTests, ReceiveWholeBodyForResponseWithoutContentLengthOrTransferCoding) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    auto transaction = client.Request(outgoingRequest, false);
+    auto connection = transport->connections[0];
+    connection->sendDataJustBeforeBreak = true;
+    const auto& incomingRequest = connection->requests[0];
+    EXPECT_TRUE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
+    EXPECT_TRUE(connection->broken);
+    EXPECT_TRUE(connection->brokenGracefully);
+    connection->broken = false;
+    connection->brokenGracefully = false;
+
+    // Provide a response back to the client, in two pieces:
+    // 1) status line and headers
+    // 2) body
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Connection", "Close");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.body = "PogChamp";
+    const auto& responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end() - response.body.length()});
+    ASSERT_FALSE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    connection->dataReceivedDelegate({responseEncoding.end() - response.body.length(), responseEncoding.end()});
+    ASSERT_FALSE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    connection->brokenDelegate(false);
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::Completed, transaction->state);
+    EXPECT_EQ(200, transaction->response.statusCode);
+    EXPECT_EQ("OK", transaction->response.reasonPhrase);
+    EXPECT_EQ("Bar", transaction->response.headers.GetHeaderValue("Foo"));
+    EXPECT_EQ("text/plain", transaction->response.headers.GetHeaderValue("Content-Type"));
+    EXPECT_EQ("8", transaction->response.headers.GetHeaderValue("Content-Length"));
+    EXPECT_EQ("PogChamp", transaction->response.body);
+
+    // Wait for the client to close their end of the connection.
+    EXPECT_TRUE(connection->broken);
+    EXPECT_FALSE(connection->brokenGracefully);
+
+    // Release all strong connection references, and verify the connection is not yet
+    // destroyed (through a global flag which causes the connection destructor to
+    // crash the test).
+    crashOnConnectionDestruction = true;
+    connection = nullptr;
+    transport->connections.clear();
+
+    // Release the transaction, and verify the connection is finally destroyed.
+    crashOnConnectionDestruction = false;
+    connectionDestroyed = false;
+    transaction = nullptr;
+    EXPECT_TRUE(connectionDestroyed);
+}

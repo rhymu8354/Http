@@ -300,6 +300,9 @@ namespace {
                     default: {
                     } break;
                 }
+            } else if (response.headers.HasHeaderToken("Connection", "close")) {
+                response.body += nextRawResponsePart.substr(messageEnd);
+                messageEnd += bytesAvailableForBody;
             } else {
                 response.body.clear();
                 response.state = Http::Response::State::Complete;
@@ -714,7 +717,15 @@ namespace Http {
                             return;
                         }
                         if (!transaction->complete) {
-                            transaction->state = Transaction::State::Broken;
+                            if (transaction->response.IsCompleteOrError(false)) {
+                                transaction->response.headers.SetHeader(
+                                    "Content-Length",
+                                    SystemAbstractions::sprintf("%zu", transaction->response.body.length())
+                                );
+                                transaction->state = Transaction::State::Completed;
+                            } else {
+                                transaction->state = Transaction::State::Broken;
+                            }
                             transaction->Complete();
                         }
                         brokenDelegate();
@@ -783,7 +794,7 @@ namespace Http {
         const auto response = std::make_shared< Response >();
         ChunkedBody chunkedBody;
         messageEnd = ParseResponseImpl(*response, chunkedBody, rawResponse);
-        if (response->IsCompleteOrError()) {
+        if (response->IsCompleteOrError(false)) {
             return response;
         } else {
             return nullptr;

@@ -11,11 +11,24 @@
 
 namespace Http {
 
-    bool Response::IsCompleteOrError() const {
-        return (
+    bool Response::IsCompleteOrError(bool moreDataPossible) const {
+        if (
             (state == State::Complete)
             || (state == State::Error)
-        );
+        ) {
+            return true;
+        }
+        if (
+            !moreDataPossible
+            && (state == State::Body)
+            && (
+                !headers.HasHeader("Content-Length")
+                && !headers.HasHeaderToken("Transfer-Encoding", "chunked")
+            )
+        ) {
+            return true;
+        }
+        return false;
     }
 
     std::string Response::Generate() const {
