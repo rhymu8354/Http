@@ -281,10 +281,14 @@ namespace {
                             "chunked"
                         );
                         transferCodings.erase(chunkedToken);
-                        response.headers.SetHeader(
-                            "Transfer-Encoding",
-                            SystemAbstractions::Join(transferCodings, " ")
-                        );
+                        if (transferCodings.empty()) {
+                            response.headers.RemoveHeader("Transfer-Encoding");
+                        } else {
+                            response.headers.SetHeader(
+                                "Transfer-Encoding",
+                                SystemAbstractions::Join(transferCodings, " ")
+                            );
+                        }
                         response.headers.RemoveHeader("Trailer");
                         response.state = Http::Response::State::Complete;
                     } break;

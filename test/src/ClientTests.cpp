@@ -402,7 +402,7 @@ TEST_F(ClientTests, ParseGetResponseWithBodyAndContentLength) {
     ASSERT_EQ("Hello World! My payload includes a trailing CRLF.\r\n", response->body);
 }
 
-TEST_F(ClientTests, ParseGetResponseWithChunkedBody) {
+TEST_F(ClientTests, ParseGetResponseWithChunkedBodyNoOtherTransferCoding) {
     const auto response = client.ParseResponse(
         "HTTP/1.1 200 OK\r\n"
         "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n"
@@ -436,7 +436,23 @@ TEST_F(ClientTests, ParseGetResponseWithChunkedBody) {
     EXPECT_EQ("51", response->headers.GetHeaderValue("Content-Length"));
     EXPECT_FALSE(response->headers.HasHeaderToken("Transfer-Encoding", "chunked"));
     EXPECT_FALSE(response->headers.HasHeader("Trailer"));
+    EXPECT_FALSE(response->headers.HasHeader("Transfer-Encoding"));
     EXPECT_EQ("Hello World! My payload includes a trailing CRLF.\r\n", response->body);
+}
+
+TEST_F(ClientTests, ParseGetResponseWithChunkedBodyWithOtherTransferCoding) {
+    const auto response = client.ParseResponse(
+        "HTTP/1.1 200 OK\r\n"
+        "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n"
+        "Transfer-Encoding: chunked, foobar\r\n"
+        "Content-Type: text/plain\r\n"
+        "\r\n"
+        "0\r\n"
+        "\r\n"
+    );
+    ASSERT_FALSE(response == nullptr);
+    ASSERT_EQ(Http::Response::State::Complete, response->state);
+    EXPECT_EQ("foobar", response->headers.GetHeaderValue("Transfer-Encoding"));
 }
 
 TEST_F(ClientTests, ParseIncompleteBodyResponse) {
