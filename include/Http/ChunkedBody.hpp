@@ -66,9 +66,9 @@ namespace Http {
     public:
         ~ChunkedBody() noexcept;
         ChunkedBody(const ChunkedBody&) = delete;
-        ChunkedBody(ChunkedBody&&) noexcept = delete;
+        ChunkedBody(ChunkedBody&&) noexcept;
         ChunkedBody& operator=(const ChunkedBody&) = delete;
-        ChunkedBody& operator=(ChunkedBody&&) noexcept = delete;
+        ChunkedBody& operator=(ChunkedBody&&) noexcept;
 
         // Public methods
     public:

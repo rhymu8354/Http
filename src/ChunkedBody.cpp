@@ -216,6 +216,8 @@ namespace Http {
     };
 
     ChunkedBody::~ChunkedBody() = default;
+    ChunkedBody::ChunkedBody(ChunkedBody&&) noexcept = default;
+    ChunkedBody& ChunkedBody::operator=(ChunkedBody&&) noexcept = default;
 
     ChunkedBody::ChunkedBody()
         : impl_(new Impl)
@@ -310,7 +312,11 @@ namespace Http {
                     )
                 ) {
                     case MessageHeaders::MessageHeaders::State::Complete: {
-                        impl_->state = State::Complete;
+                        if (impl_->trailers.IsValid()) {
+                            impl_->state = State::Complete;
+                        } else {
+                            impl_->state = State::Error;
+                        }
                     } break;
 
                     case MessageHeaders::MessageHeaders::State::Incomplete: {

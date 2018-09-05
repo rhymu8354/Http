@@ -246,3 +246,87 @@ TEST_F(ChunkedBodyTests, DecodeTrailersOneCharacterAtATime) {
         );
     }
 }
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineNotHexdigInChunkSize) {
+    ASSERT_EQ(4, body.Decode("0g\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineChunkSizeOverflow) {
+    ASSERT_EQ(65, body.Decode("111111111111111111111111111111111111111111111111111111111111111\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineChunkExtensionNameFirstCharacterNotTchar) {
+    ASSERT_EQ(5, body.Decode("0;@\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+    body = Http::ChunkedBody();
+    ASSERT_EQ(5, body.Decode("0;;\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+    body = Http::ChunkedBody();
+    ASSERT_EQ(5, body.Decode("0;=\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineChunkExtensionNameNotFirstCharacterNotTcharOrSemicolonOrEqual) {
+    ASSERT_EQ(6, body.Decode("0;x@\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineChunkExtensionValueFirstCharacterNotQuoteOrTchar) {
+    ASSERT_EQ(7, body.Decode("0;x=@\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+    body = Http::ChunkedBody();
+    ASSERT_EQ(7, body.Decode("0;x=;\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineChunkExtensionValueNotFirstCharacterNotTcharOrSemicolon) {
+    ASSERT_EQ(8, body.Decode("0;x=y@\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineChunkExtensionValueQuotedStringIllegalCharacter) {
+    ASSERT_EQ(8, body.Decode("0;x=\"\b\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineChunkExtensionValueQuotedStringBadQuotedCharacter) {
+    ASSERT_EQ(9, body.Decode("0;x=\"\\\b\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineCharacterFollowingQuotedStringExtensionValueNotSemicolon) {
+    ASSERT_EQ(10, body.Decode("0;x=\"y\"z\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineBadEndStateExpectingFirstExtensionNameCharacter) {
+    ASSERT_EQ(4, body.Decode("0;\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineBadEndStateExpectingFirstExtensionValueCharacter) {
+    ASSERT_EQ(6, body.Decode("0;x=\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineBadEndStateUnterminatedQuotedStringExtensionValueNotQuotedPair) {
+    ASSERT_EQ(7, body.Decode("0;x=\"\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadChunkSizeLineBadEndStateUnterminatedQuotedStringExtensionValueQuotedPair) {
+    ASSERT_EQ(8, body.Decode("0;x=\"\\\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadJunkAfterChunk) {
+    ASSERT_EQ(4, body.Decode("1\r\nXjunk\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
+
+TEST_F(ChunkedBodyTests, DecodeBadTrailer) {
+    ASSERT_EQ(16, body.Decode("0\r\nX-Foo Bar\r\n\r\n"));
+    ASSERT_EQ(Http::ChunkedBody::State::Error, body.GetState());
+}
