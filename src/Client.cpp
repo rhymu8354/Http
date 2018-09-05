@@ -6,8 +6,10 @@
  * © 2018 by Richard Walters
  */
 
+#include <algorithm>
 #include <condition_variable>
 #include <functional>
+#include <Http/ChunkedBody.hpp>
 #include <Http/Client.hpp>
 #include <Http/Connection.hpp>
 #include <inttypes.h>
@@ -42,6 +44,57 @@ namespace {
      * connections to check for timeouts.
      */
     constexpr unsigned int CONNECTION_POLLING_PERIOD_MILLISECONDS = 50;
+
+    /**
+     * These are the names of message headers which aren't allowed
+     * to be transmitted in the trailer of a chunked body of a message,
+     * as listed in section 4.1.2 of RFC 7230.
+     */
+    std::set< MessageHeaders::MessageHeaders::HeaderName > HEADERS_NOT_ALLOWED_IN_TRAILER{
+        // Message framing
+        "Transfer-Encoding",
+        "Content-Length",
+
+        // Host
+        "Host",
+
+        // Request modifiers: controls
+        "Cache-Control",
+        "Expect",
+        //"Host",  // explicitly listed earlier
+        "Max-Forwards",
+        "Pragma",
+        "Range",
+        "TE",
+
+        // Request modifiers: authentication
+        "Authorization",
+        "Proxy-Authenticate",
+        "Proxy-Authorization",
+        "WWW-Authenticate",
+
+        // Request modifiers: cookies
+        "Cookie",
+        "Set-Cookie",
+        "Cookie2",
+        "Set-Cookie2",
+
+        // Response control data
+        "Age",
+        "Cache-Control",
+        "Expires",
+        "Date",
+        "Location",
+        "Retry-After",
+        "Vary",
+        "Warning",
+
+        // Payload processing
+        "Content-Encoding",
+        "Content-Type",
+        "Content-Range",
+        "Trailer",
+    };
 
     /**
      * This method parses the protocol identifier, status code,
@@ -114,6 +167,10 @@ namespace {
      * @param[in,out] response
      *     This is the response being parsed.
      *
+     * @param[in,out] chunkedBody
+     *     This is used to incrementally parse the response body,
+     *     if the response employs chunked transfer coding.
+     *
      * @param[in] nextRawResponsePart
      *     This is the next part of the raw HTTP response message.
      *
@@ -125,6 +182,7 @@ namespace {
      */
     size_t ParseResponseImpl(
         Http::Response& response,
+        Http::ChunkedBody& chunkedBody,
         const std::string& nextRawResponsePart
     ) {
         // Count the number of characters incorporated into
@@ -202,6 +260,42 @@ namespace {
                         response.state = Http::Response::State::Complete;
                     }
                 }
+            } else if (response.headers.HasHeaderToken("Transfer-Encoding", "chunked")) {
+                messageEnd += chunkedBody.Decode(nextRawResponsePart, messageEnd);
+                switch (chunkedBody.GetState()) {
+                    case Http::ChunkedBody::State::Complete: {
+                        response.body = chunkedBody;
+                        for (const auto& trailer: chunkedBody.GetTrailers().GetAll()) {
+                            if (HEADERS_NOT_ALLOWED_IN_TRAILER.find(trailer.name) == HEADERS_NOT_ALLOWED_IN_TRAILER.end()) {
+                                response.headers.AddHeader(trailer.name, trailer.value);
+                            }
+                        }
+                        response.headers.SetHeader(
+                            "Content-Length",
+                            SystemAbstractions::sprintf("%zu", response.body.length())
+                        );
+                        auto transferCodings = response.headers.GetHeaderTokens("Transfer-Encoding");
+                        const auto chunkedToken = std::find(
+                            transferCodings.begin(),
+                            transferCodings.end(),
+                            "chunked"
+                        );
+                        transferCodings.erase(chunkedToken);
+                        response.headers.SetHeader(
+                            "Transfer-Encoding",
+                            SystemAbstractions::Join(transferCodings, " ")
+                        );
+                        response.headers.RemoveHeader("Trailer");
+                        response.state = Http::Response::State::Complete;
+                    } break;
+
+                    case Http::ChunkedBody::State::Error: {
+                        response.state = Http::Response::State::Error;
+                    } break;
+
+                    default: {
+                    } break;
+                }
             } else {
                 response.body.clear();
                 response.state = Http::Response::State::Complete;
@@ -253,6 +347,13 @@ namespace {
         : public Http::Client::Transaction
     {
         // Properties
+
+        /**
+         * This is a utility used to decode the body of the response
+         * obtained from the server, if the response employs
+         * chunked transfer coding.
+         */
+        Http::ChunkedBody chunkedBody;
 
         /**
          * This is the state of the connection to the server
@@ -329,6 +430,7 @@ namespace {
             reassemblyBuffer += std::string(data.begin(), data.end());
             const auto charactersAccepted = ParseResponseImpl(
                 response,
+                chunkedBody,
                 reassemblyBuffer
             );
             reassemblyBuffer.erase(
@@ -675,7 +777,8 @@ namespace Http {
         size_t& messageEnd
     ) -> std::shared_ptr< Response > {
         const auto response = std::make_shared< Response >();
-        messageEnd = ParseResponseImpl(*response, rawResponse);
+        ChunkedBody chunkedBody;
+        messageEnd = ParseResponseImpl(*response, chunkedBody, rawResponse);
         if (response->IsCompleteOrError()) {
             return response;
         } else {
