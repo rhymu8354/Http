@@ -215,7 +215,7 @@ namespace Http {
         }
     };
 
-    ChunkedBody::~ChunkedBody() = default;
+    ChunkedBody::~ChunkedBody() noexcept = default;
     ChunkedBody::ChunkedBody(ChunkedBody&&) noexcept = default;
     ChunkedBody& ChunkedBody::operator=(ChunkedBody&&) noexcept = default;
 

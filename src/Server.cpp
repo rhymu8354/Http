@@ -759,6 +759,8 @@ namespace Http {
                             request.responseStatusCode = 413;
                             request.responseReasonPhrase = "Payload Too Large";
                         } return messageEnd;
+
+                        default: break;
                     }
                     if (contentLengthAsInt < 0) {
                         request.state = Request::State::Error;
@@ -1273,7 +1275,7 @@ namespace Http {
         }
     };
 
-    Server::~Server() {
+    Server::~Server() noexcept {
         Demobilize();
         {
             std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);

@@ -170,7 +170,7 @@ namespace {
         }
 
         virtual std::string GetPeerId() override {
-            return SystemAbstractions::sprintf("%s:%" PRIu16, hostNameOrIpAddress, port);
+            return SystemAbstractions::sprintf("%s:%" PRIu16, hostNameOrIpAddress.c_str(), port);
         }
 
         virtual void SetDataReceivedDelegate(DataReceivedDelegate newDataReceivedDelegate) override {
@@ -731,7 +731,6 @@ TEST_F(ClientTests, NonPersistentConnectionReleasedAfterTransactionCompleted) {
     outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
     auto transaction = client.Request(outgoingRequest, false);
     auto connection = transport->connections[0];
-    const auto& incomingRequest = connection->requests[0];
 
     // Provide a response back to the client, in one piece.
     Http::Response response;

@@ -623,7 +623,7 @@ namespace Http {
         }
     };
 
-    Client::~Client() {
+    Client::~Client() noexcept {
         Demobilize();
     }
 
