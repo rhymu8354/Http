@@ -774,10 +774,7 @@ TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
     connection->sendDataJustBeforeBreak = true;
     const auto& incomingRequest = connection->requests[0];
     EXPECT_TRUE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
-    EXPECT_TRUE(connection->broken);
-    EXPECT_TRUE(connection->brokenGracefully);
-    connection->broken = false;
-    connection->brokenGracefully = false;
+    EXPECT_FALSE(connection->broken);
 
     // Provide a response back to the client, in one piece.
     Http::Response response;
@@ -916,10 +913,6 @@ TEST_F(ClientTests, SecondRequestNonPersistentWithPersistentConnectionClosesConn
     outgoingRequest.target.ParseFromString("http://www.example.com:1234/bar");
     transaction = client.Request(outgoingRequest, false);
     ASSERT_TRUE(connection->AwaitRequests(2));
-    EXPECT_TRUE(connection->broken);
-    EXPECT_TRUE(connection->brokenGracefully);
-    connection->broken = false;
-    connection->brokenGracefully = false;
     auto incomingRequest = connection->requests[1];
     EXPECT_TRUE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
 
@@ -1127,10 +1120,6 @@ TEST_F(ClientTests, ReceiveWholeBodyForResponseWithoutContentLengthOrTransferCod
     connection->sendDataJustBeforeBreak = true;
     const auto& incomingRequest = connection->requests[0];
     EXPECT_TRUE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
-    EXPECT_TRUE(connection->broken);
-    EXPECT_TRUE(connection->brokenGracefully);
-    connection->broken = false;
-    connection->brokenGracefully = false;
 
     // Provide a response back to the client, in two pieces:
     // 1) status line and headers

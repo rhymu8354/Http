@@ -769,9 +769,6 @@ namespace Http {
                 (void)impl_->persistentConnections.erase(serverId);
             }
         }
-        if (!persistConnection) {
-            connectionState->connection->Break(true);
-        }
         return transaction;
     }
 
