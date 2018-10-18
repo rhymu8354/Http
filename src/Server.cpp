@@ -1447,7 +1447,10 @@ namespace Http {
                             (void)superspace->subspaces.erase(currentSpace->name);
                         }
                     }
-                    if (superspace->subspaces.empty()) {
+                    if (
+                        (superspace != nullptr)
+                        && superspace->subspaces.empty()
+                    ) {
                         currentSpace = superspace;
                     } else {
                         break;

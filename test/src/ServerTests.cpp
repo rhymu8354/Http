@@ -1272,6 +1272,59 @@ TEST_F(ServerTests, RegisterResourceDelegateServerWide) {
     connection->dataReceived.clear();
 }
 
+TEST_F(ServerTests, UnRegisterResourceDelegateServerWideWhenSubspaceStillRegistered) {
+    // Setup
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
+    (void)server.Mobilize(deps);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Register server-wide resource delegate.
+    const auto resourceDelegate = [](
+        const Http::Request& request,
+        std::shared_ptr< Http::Connection > connection,
+        const std::string& trailer
+    ){
+        Http::Response response;
+        response.statusCode = 200;
+        response.reasonPhrase = "OK";
+        return response;
+    };
+    const auto topUnregistrationDelegate = server.RegisterResource({ }, resourceDelegate);
+
+    // Register a subspace resource delegate.
+    const auto subspaceUnregistrationDelegate = server.RegisterResource({ "foo" }, resourceDelegate);
+
+    // Now try to unregister the server-wide resource delegate, to make sure
+    // this does not crash (which it did at one point due to a bug).
+    topUnregistrationDelegate();
+
+    // Query the server for the subspace resource, to make sure it still works.
+    const std::string request = (
+        "GET /foo HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(200, response->statusCode);
+}
+
 TEST_F(ServerTests, DontAllowDoubleRegistration) {
     auto transport = std::make_shared< MockTransport >();
     Http::Server::MobilizationDependencies deps;
