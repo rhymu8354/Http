@@ -1165,3 +1165,53 @@ TEST_F(ClientTests, ReceiveWholeBodyForResponseWithoutContentLengthOrTransferCod
     transaction = nullptr;
     EXPECT_TRUE(connectionDestroyed);
 }
+
+TEST_F(ClientTests, GetRequestGzippedByServerUngzippedByClient) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://PePe@www.example.com:1234/foo?abc#def");
+    const auto transaction = client.Request(outgoingRequest);
+    (void)transport->AwaitConnections(1);
+    const auto& connection = transport->connections[0];
+    (void)connection->AwaitRequests(1);
+    const auto& incomingRequest = connection->requests[0];
+    EXPECT_EQ("gzip, deflate", incomingRequest.headers.GetHeaderValue("Accept-Encoding"));
+
+    // Provide a response back to the client, in one piece,
+    // applying gzip compression.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Encoding", "gzip");
+    response.headers.SetHeader("Vary", "Accept-Encoding");
+    response.headers.SetHeader("Content-Length", "33");
+    response.body = std::string(
+        "\x1F\x8B\x08\x00\x00\x00\x00\x00\x00\x0A\xF3\x48\xCD\xC9\xC9\xD7"
+        "\x51\x08\xCF\x2F\xCA\x49\x51\x04\x00\xD0\xC3\x4A\xEC\x0D\x00\x00"
+        "\x00",
+        33
+    );
+    const auto& responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::Completed, transaction->state);
+    EXPECT_EQ(200, transaction->response.statusCode);
+    EXPECT_EQ("OK", transaction->response.reasonPhrase);
+    EXPECT_EQ("Bar", transaction->response.headers.GetHeaderValue("Foo"));
+    EXPECT_EQ("text/plain", transaction->response.headers.GetHeaderValue("Content-Type"));
+    EXPECT_EQ("", transaction->response.headers.GetHeaderValue("Content-Encoding"));
+    EXPECT_EQ("13", transaction->response.headers.GetHeaderValue("Content-Length"));
+    EXPECT_EQ("Hello, World!", transaction->response.body);
+}

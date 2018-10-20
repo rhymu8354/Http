@@ -6,6 +6,8 @@
  * © 2018 by Richard Walters
  */
 
+#include "Inflate.hpp"
+
 #include <algorithm>
 #include <condition_variable>
 #include <functional>
@@ -14,6 +16,7 @@
 #include <Http/Connection.hpp>
 #include <inttypes.h>
 #include <limits>
+#include <list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -174,6 +177,11 @@ namespace {
      * @param[in] nextRawResponsePart
      *     This is the next part of the raw HTTP response message.
      *
+     * @param[in] decodeSupportedCodings
+     *     This flag indicates whether or not the function decodes
+     *     the body if the coding applied to it is understood by this
+     *     function.
+     *
      * @return
      *     A count of the number of characters that were taken from
      *     the given input string is returned. Presumably,
@@ -183,7 +191,8 @@ namespace {
     size_t ParseResponseImpl(
         Http::Response& response,
         Http::ChunkedBody& chunkedBody,
-        const std::string& nextRawResponsePart
+        const std::string& nextRawResponsePart,
+        bool decodeSupportedCodings
     ) {
         // Count the number of characters incorporated into
         // the response object.
@@ -228,7 +237,7 @@ namespace {
             }
         }
 
-        // Finally, extract the body.
+        // Next, extract the body.
         if (response.state == Http::Response::State::Body) {
             // If there is a "Content-Length"
             // header, we carefully carve exactly that number of characters
@@ -306,6 +315,48 @@ namespace {
             } else {
                 response.body.clear();
                 response.state = Http::Response::State::Complete;
+            }
+        }
+
+        // Finally, decode the body if there are any content encodings
+        // applied that we should handle.
+        if (decodeSupportedCodings) {
+            auto codings = response.headers.GetHeaderTokens("Content-Encoding");
+            std::reverse(codings.begin(), codings.end());
+            std::list< std::string > codingsNotApplied;
+            bool stopDecoding = false;
+            for (const auto& coding: codings) {
+                if (stopDecoding) {
+                    codingsNotApplied.push_front(coding);
+                } else {
+                    static const std::map< std::string, Http::InflateMode > inflateModesSupported{
+                        {"gzip", Http::InflateMode::Ungzip},
+                        {"deflate", Http::InflateMode::Inflate},
+                    };
+                    const auto codingEntry = inflateModesSupported.find(coding);
+                    if (codingEntry == inflateModesSupported.end()) {
+                        stopDecoding = true;
+                        codingsNotApplied.push_front(coding);
+                    } else {
+                        response.body = Http::Inflate(response.body, codingEntry->second);
+                        response.headers.SetHeader(
+                            "Content-Length",
+                            SystemAbstractions::sprintf("%zu", response.body.size())
+                        );
+                    }
+                }
+            }
+            std::string codingsNotAppliedString;
+            for (const auto& coding: codings) {
+                if (!codingsNotAppliedString.empty()) {
+                    codingsNotAppliedString += ", ";
+                }
+                codingsNotAppliedString += coding;
+            }
+            if (codingsNotApplied.empty()) {
+                response.headers.RemoveHeader("Content-Encoding");
+            } else {
+                response.headers.SetHeader("Content-Encoding", codingsNotAppliedString);
             }
         }
         return messageEnd;
@@ -438,7 +489,8 @@ namespace {
             const auto charactersAccepted = ParseResponseImpl(
                 response,
                 chunkedBody,
-                reassemblyBuffer
+                reassemblyBuffer,
+                true
             );
             reassemblyBuffer.erase(
                 reassemblyBuffer.begin(),
@@ -747,6 +799,7 @@ namespace Http {
         }
         transaction->persistConnection = persistConnection;
         request.headers.SetHeader("Host", hostNameOrAddress);
+        request.headers.SetHeader("Accept-Encoding", "gzip, deflate");
         if (!persistConnection) {
             request.headers.SetHeader("Connection", "Close");
         }
@@ -790,7 +843,7 @@ namespace Http {
     ) -> std::shared_ptr< Response > {
         const auto response = std::make_shared< Response >();
         ChunkedBody chunkedBody;
-        messageEnd = ParseResponseImpl(*response, chunkedBody, rawResponse);
+        messageEnd = ParseResponseImpl(*response, chunkedBody, rawResponse, false);
         if (response->IsCompleteOrError(false)) {
             return response;
         } else {
