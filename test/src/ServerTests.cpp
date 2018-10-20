@@ -2460,3 +2460,140 @@ TEST_F(ServerTests, MultipleBadRequestsSentAtOnceCausesContinuedProcessingAfterC
         diagnosticMessages
     );
 }
+
+TEST_F(ServerTests, GzippedResponse) {
+    // Set up all the things.
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
+    (void)server.Mobilize(deps);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Register a delegate to handle the source, and then query the server
+    // a second time.  Expect the resource request to be routed to the delegate
+    // and handled correctly this time.
+    std::vector< Uri::Uri > requestsReceived;
+    const auto resourceDelegate = [&requestsReceived](
+        const Http::Request& request,
+        std::shared_ptr< Http::Connection > connection,
+        const std::string& trailer
+    ){
+        Http::Response response;
+        response.statusCode = 200;
+        response.reasonPhrase = "OK";
+        response.body = "Hello, World!";
+        response.headers.SetHeader("Content-Encoding", "gzip");
+        response.headers.SetHeader("Vary", "Accept-Encoding");
+        requestsReceived.push_back(request.target);
+        return response;
+    };
+    const auto unregistrationDelegate = server.RegisterResource({ "foo" }, resourceDelegate);
+
+    // Send in request.
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "Accept-Encoding: gzip\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+
+    // Parse data received back as a response.
+    Http::Client client;
+    const auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(200, response->statusCode);
+    ASSERT_EQ(1, requestsReceived.size());
+    EXPECT_EQ("gzip", response->headers.GetHeaderValue("Content-Encoding"));
+    EXPECT_TRUE(response->headers.HasHeaderToken("Vary", "Accept-Encoding"));
+    EXPECT_EQ(
+        std::string(
+            "\x1F\x8B\x08\x00\x00\x00\x00\x00\x00\x0A\xF3\x48\xCD\xC9\xC9\xD7"
+            "\x51\x08\xCF\x2F\xCA\x49\x51\x04\x00\xD0\xC3\x4A\xEC\x0D\x00\x00"
+            "\x00",
+            33
+        ),
+        response->body
+    );
+    connection->dataReceived.clear();
+}
+
+TEST_F(ServerTests, DeflateResponse) {
+    // Set up all the things.
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
+    (void)server.Mobilize(deps);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+
+    // Register a delegate to handle the source, and then query the server
+    // a second time.  Expect the resource request to be routed to the delegate
+    // and handled correctly this time.
+    std::vector< Uri::Uri > requestsReceived;
+    const auto resourceDelegate = [&requestsReceived](
+        const Http::Request& request,
+        std::shared_ptr< Http::Connection > connection,
+        const std::string& trailer
+    ){
+        Http::Response response;
+        response.statusCode = 200;
+        response.reasonPhrase = "OK";
+        response.body = "Hello, World!";
+        response.headers.SetHeader("Content-Encoding", "deflate");
+        response.headers.SetHeader("Vary", "Accept-Encoding");
+        requestsReceived.push_back(request.target);
+        return response;
+    };
+    const auto unregistrationDelegate = server.RegisterResource({ "foo" }, resourceDelegate);
+
+    // Send in request.
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "Accept-Encoding: deflate\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+
+    // Parse data received back as a response.
+    Http::Client client;
+    const auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    EXPECT_EQ(200, response->statusCode);
+    ASSERT_EQ(1, requestsReceived.size());
+    EXPECT_EQ("deflate", response->headers.GetHeaderValue("Content-Encoding"));
+    EXPECT_TRUE(response->headers.HasHeaderToken("Vary", "Accept-Encoding"));
+    EXPECT_EQ(
+        std::string(
+            "\x78\x9C\xF3\x48\xCD\xC9\xC9\xD7\x51\x08\xCF\x2F\xCA\x49\x51\x04"
+            "\x00\x1F\x9E\x04\x6A",
+            21
+        ),
+        response->body
+    );
+    connection->dataReceived.clear();
+}

@@ -6,6 +6,8 @@
  * © 2018 by Richard Walters
  */
 
+#include "Deflate.hpp"
+
 #include <algorithm>
 #include <condition_variable>
 #include <deque>
@@ -1125,6 +1127,29 @@ namespace Http {
                     ) {
                         request->target.SetPath({ resourcePath.begin(), resourcePath.end() });
                         response = resource->handler(*request, connectionState->connection, connectionState->reassemblyBuffer);
+                        std::string codingsApplied;
+                        for (const auto& coding: response.headers.GetHeaderTokens("Content-Encoding")) {
+                            if (coding == "gzip") {
+                                if (!codingsApplied.empty()) {
+                                    codingsApplied += ", ";
+                                }
+                                codingsApplied += coding;
+                                response.body = Deflate(response.body, DeflateMode::Gzip);
+                            } else if (coding == "deflate") {
+                                if (!codingsApplied.empty()) {
+                                    codingsApplied += ", ";
+                                }
+                                codingsApplied += coding;
+                                response.body = Deflate(response.body, DeflateMode::Deflate);
+                            } else if (codingsApplied.empty()) {
+                                codingsApplied = coding;
+                            }
+                        }
+                        if (codingsApplied.empty()) {
+                            response.headers.RemoveHeader("Content-Encoding");
+                        } else {
+                            response.headers.SetHeader("Content-Encoding", codingsApplied);
+                        }
                     } else {
                         response.statusCode = 404;
                         response.reasonPhrase = "Not Found";

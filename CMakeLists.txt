@@ -21,6 +21,8 @@ set(Headers
 set(Sources
     src/ChunkedBody.cpp
     src/Client.cpp
+    src/Deflate.cpp
+    src/Deflate.hpp
     src/Request.cpp
     src/Response.cpp
     src/Server.cpp
@@ -37,6 +39,7 @@ target_link_libraries(${This} PUBLIC
     MessageHeaders
     SystemAbstractions
     Uri
+    zlibstatic
 )
 
 add_subdirectory(test)
