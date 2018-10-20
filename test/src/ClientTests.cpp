@@ -1275,3 +1275,79 @@ TEST_F(ClientTests, SimpleGetRequestFragmentedChunkedGzippedResponse) {
     EXPECT_EQ("13", transaction->response.headers.GetHeaderValue("Content-Length"));
     EXPECT_EQ("Hello, World!", transaction->response.body);
 }
+
+TEST_F(ClientTests, GetRequestGzippedByServerEmpty) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://PePe@www.example.com:1234/foo?abc#def");
+    const auto transaction = client.Request(outgoingRequest);
+    (void)transport->AwaitConnections(1);
+    const auto& connection = transport->connections[0];
+    (void)connection->AwaitRequests(1);
+    const auto& incomingRequest = connection->requests[0];
+    EXPECT_EQ("gzip, deflate", incomingRequest.headers.GetHeaderValue("Accept-Encoding"));
+
+    // Provide a response back to the client, in one piece,
+    // applying gzip compression, but give an empty (invalid) body.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Encoding", "gzip");
+    response.headers.SetHeader("Vary", "Accept-Encoding");
+    response.headers.SetHeader("Content-Length", "0");
+    response.body = "";
+    const auto& responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Response::State::Error, transaction->response.state);
+}
+
+TEST_F(ClientTests, GetRequestGzippedByServerJunk) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://PePe@www.example.com:1234/foo?abc#def");
+    const auto transaction = client.Request(outgoingRequest);
+    (void)transport->AwaitConnections(1);
+    const auto& connection = transport->connections[0];
+    (void)connection->AwaitRequests(1);
+    const auto& incomingRequest = connection->requests[0];
+    EXPECT_EQ("gzip, deflate", incomingRequest.headers.GetHeaderValue("Accept-Encoding"));
+
+    // Provide a response back to the client, in one piece,
+    // applying gzip compression, but give an empty (invalid) body.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Encoding", "gzip");
+    response.headers.SetHeader("Vary", "Accept-Encoding");
+    response.headers.SetHeader("Content-Length", "42");
+    response.body = "Hello, this is certainly not gzipped data!";
+    const auto& responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Response::State::Error, transaction->response.state);
+}

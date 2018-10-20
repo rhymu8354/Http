@@ -78,9 +78,14 @@ namespace Http {
             result = deflate(&deflateStream, Z_FINISH);
             output.resize(totalDeflatedPreviously + (size_t)deflateStream.total_out);
             if (
+                (result == Z_BUF_ERROR)
+                && (deflateStream.total_out == 0)
+            ) {
+                return {};
+            } else if (
                 (result != Z_OK)
                 && (result != Z_STREAM_END)
-                && (result != Z_BUF_ERROR) // TODO: check if we need to ignore Z_BUF_ERROR
+                && (result != Z_BUF_ERROR)
             ) {
                 return {};
             }

@@ -342,10 +342,15 @@ namespace {
                         codingsNotApplied.push_front(coding);
                     } else {
                         response.body = Http::Inflate(response.body, codingEntry->second);
-                        response.headers.SetHeader(
-                            "Content-Length",
-                            SystemAbstractions::sprintf("%zu", response.body.size())
-                        );
+                        if (response.body.empty()) {
+                            response.state = Http::Response::State::Error;
+                            break;
+                        } else {
+                            response.headers.SetHeader(
+                                "Content-Length",
+                                SystemAbstractions::sprintf("%zu", response.body.size())
+                            );
+                        }
                     }
                 }
             }
