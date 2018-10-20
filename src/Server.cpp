@@ -1129,20 +1129,21 @@ namespace Http {
                         response = resource->handler(*request, connectionState->connection, connectionState->reassemblyBuffer);
                         std::string codingsApplied;
                         for (const auto& coding: response.headers.GetHeaderTokens("Content-Encoding")) {
-                            if (coding == "gzip") {
+                            static const std::map< std::string, DeflateMode > deflateModesSupported{
+                                {"gzip", DeflateMode::Gzip},
+                                {"deflate", DeflateMode::Deflate},
+                            };
+                            const auto codingEntry = deflateModesSupported.find(coding);
+                            if (codingEntry == deflateModesSupported.end()) {
+                                if (codingsApplied.empty()) {
+                                    codingsApplied = coding;
+                                }
+                            } else {
                                 if (!codingsApplied.empty()) {
                                     codingsApplied += ", ";
                                 }
                                 codingsApplied += coding;
-                                response.body = Deflate(response.body, DeflateMode::Gzip);
-                            } else if (coding == "deflate") {
-                                if (!codingsApplied.empty()) {
-                                    codingsApplied += ", ";
-                                }
-                                codingsApplied += coding;
-                                response.body = Deflate(response.body, DeflateMode::Deflate);
-                            } else if (codingsApplied.empty()) {
-                                codingsApplied = coding;
+                                response.body = Deflate(response.body, codingEntry->second);
                             }
                         }
                         if (codingsApplied.empty()) {
