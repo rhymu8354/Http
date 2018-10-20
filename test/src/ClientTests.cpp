@@ -1215,3 +1215,63 @@ TEST_F(ClientTests, GetRequestGzippedByServerUngzippedByClient) {
     EXPECT_EQ("13", transaction->response.headers.GetHeaderValue("Content-Length"));
     EXPECT_EQ("Hello, World!", transaction->response.body);
 }
+
+TEST_F(ClientTests, SimpleGetRequestFragmentedChunkedGzippedResponse) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    const auto transaction = client.Request(outgoingRequest);
+    ASSERT_FALSE(transaction == nullptr);
+    ASSERT_TRUE(transport->AwaitConnections(1));
+    const auto& connection = transport->connections[0];
+    EXPECT_EQ("www.example.com", connection->hostNameOrIpAddress);
+    EXPECT_EQ(1234, connection->port);
+    ASSERT_TRUE(connection->AwaitRequests(1));
+    const auto& incomingRequest = connection->requests[0];
+    EXPECT_EQ("GET", incomingRequest.method);
+    EXPECT_EQ((std::vector< std::string >{"", "foo"}), incomingRequest.target.GetPath());
+    EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
+    EXPECT_FALSE(incomingRequest.target.HasQuery());;
+    EXPECT_FALSE(incomingRequest.target.HasFragment());
+
+    // Provide a response back to the client, in fragments.
+    const std::string responseEncoding(
+        "HTTP/1.1 200 OK\r\n"
+        "Foo: Bar\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Encoding: gzip\r\n"
+        "Vary: Accept-Encoding\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "21\r\n"
+        "\x1F\x8B\x08\x00\x00\x00\x00\x00\x00\x0A\xF3\x48\xCD\xC9\xC9\xD7"
+        "\x51\x08\xCF\x2F\xCA\x49\x51\x04\x00\xD0\xC3\x4A\xEC\x0D\x00\x00"
+        "\x00\r\n"
+        "0\r\n"
+        "\r\n",
+        174
+    );
+    for (size_t i = 0; i < responseEncoding.size(); ++i) {
+        connection->dataReceivedDelegate({(uint8_t)responseEncoding[i]});
+        if (i == responseEncoding.size() - 2) {
+            ASSERT_FALSE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+        }
+    }
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(200, transaction->response.statusCode);
+    EXPECT_EQ("OK", transaction->response.reasonPhrase);
+    EXPECT_EQ("Bar", transaction->response.headers.GetHeaderValue("Foo"));
+    EXPECT_EQ("text/plain", transaction->response.headers.GetHeaderValue("Content-Type"));
+    EXPECT_EQ("13", transaction->response.headers.GetHeaderValue("Content-Length"));
+    EXPECT_EQ("Hello, World!", transaction->response.body);
+}

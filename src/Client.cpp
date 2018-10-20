@@ -320,7 +320,10 @@ namespace {
 
         // Finally, decode the body if there are any content encodings
         // applied that we should handle.
-        if (decodeSupportedCodings) {
+        if (
+            (response.state == Http::Response::State::Complete)
+            && decodeSupportedCodings
+        ) {
             auto codings = response.headers.GetHeaderTokens("Content-Encoding");
             std::reverse(codings.begin(), codings.end());
             std::list< std::string > codingsNotApplied;
