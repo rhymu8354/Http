@@ -444,7 +444,7 @@ TEST_F(ClientTests, ParseGetResponseWithChunkedBodyWithOtherTransferCoding) {
     const auto response = client.ParseResponse(
         "HTTP/1.1 200 OK\r\n"
         "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n"
-        "Transfer-Encoding: chunked, foobar\r\n"
+        "Transfer-Encoding: foobar, chunked\r\n"
         "Content-Type: text/plain\r\n"
         "\r\n"
         "0\r\n"
