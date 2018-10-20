@@ -2486,6 +2486,7 @@ TEST_F(ServerTests, GzippedResponse) {
         response.reasonPhrase = "OK";
         response.body = "Hello, World!";
         response.headers.SetHeader("Content-Encoding", "gzip");
+        response.headers.SetHeader("Content-Length", "13");
         response.headers.SetHeader("Vary", "Accept-Encoding");
         requestsReceived.push_back(request.target);
         return response;
@@ -2516,6 +2517,7 @@ TEST_F(ServerTests, GzippedResponse) {
     );
     EXPECT_EQ(200, response->statusCode);
     ASSERT_EQ(1, requestsReceived.size());
+    EXPECT_EQ("33", response->headers.GetHeaderValue("Content-Length"));
     EXPECT_EQ("gzip", response->headers.GetHeaderValue("Content-Encoding"));
     EXPECT_TRUE(response->headers.HasHeaderToken("Vary", "Accept-Encoding"));
     EXPECT_EQ(

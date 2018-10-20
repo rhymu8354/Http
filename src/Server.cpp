@@ -1144,6 +1144,10 @@ namespace Http {
                                 }
                                 codingsApplied += coding;
                                 response.body = Deflate(response.body, codingEntry->second);
+                                response.headers.SetHeader(
+                                    "Content-Length",
+                                    SystemAbstractions::sprintf("%zu", response.body.size())
+                                );
                             }
                         }
                         if (codingsApplied.empty()) {
