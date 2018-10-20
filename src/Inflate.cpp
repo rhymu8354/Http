@@ -26,12 +26,13 @@ namespace {
 
 namespace Http {
 
-    std::vector< uint8_t > Inflate(
+    bool Inflate(
         const std::vector< uint8_t >& input,
+        std::vector< uint8_t >& output,
         InflateMode mode
     ) {
         // Initialize the Inflate stream.
-        std::vector< uint8_t > output;
+        output.clear();
         z_stream inflateStream;
         inflateStream.zalloc = Z_NULL;
         inflateStream.zfree = Z_NULL;
@@ -43,11 +44,11 @@ namespace Http {
                     16 + MAX_WBITS
                 ) != Z_OK
             ) {
-                return {};
+                return false;
             }
         } else {
             if (inflateInit(&inflateStream) != Z_OK) {
-                return {};
+                return false;
             }
         }
 
@@ -77,29 +78,35 @@ namespace Http {
                 (result == Z_BUF_ERROR)
                 && (inflateStream.total_out == 0)
             ) {
-                return {};
+                return false;
             } else if (
                 (result != Z_OK)
                 && (result != Z_STREAM_END)
                 && (result != Z_BUF_ERROR)
             ) {
-                return {};
+                return false;
             }
         }
-
-        // Return Inflated data.
-        return output;
+        return true;
     }
 
-    std::string Inflate(
+    bool Inflate(
         const std::string& input,
+        std::string& output,
         InflateMode mode
     ) {
-        const auto output = Inflate(
-            std::vector< uint8_t >{input.begin(), input.end()},
-            mode
-        );
-        return std::string{output.begin(), output.end()};
+        std::vector< uint8_t > outputBytes;
+        if (
+            !Inflate(
+                std::vector< uint8_t >{input.begin(), input.end()},
+                outputBytes,
+                mode
+            )
+        ) {
+            return false;
+        }
+        output = std::string{outputBytes.begin(), outputBytes.end()};
+        return true;
     }
 
 }

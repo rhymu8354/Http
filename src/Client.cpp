@@ -341,15 +341,16 @@ namespace {
                         stopDecoding = true;
                         codingsNotApplied.push_front(coding);
                     } else {
-                        response.body = Http::Inflate(response.body, codingEntry->second);
-                        if (response.body.empty()) {
-                            response.state = Http::Response::State::Error;
-                            break;
-                        } else {
+                        std::string decodedBody;
+                        if (Http::Inflate(response.body, decodedBody, codingEntry->second)) {
+                            response.body = std::move(decodedBody);
                             response.headers.SetHeader(
                                 "Content-Length",
                                 SystemAbstractions::sprintf("%zu", response.body.size())
                             );
+                        } else {
+                            response.state = Http::Response::State::Error;
+                            break;
                         }
                     }
                 }

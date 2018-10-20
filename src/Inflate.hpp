@@ -44,11 +44,19 @@ namespace Http {
      * @param[in] input
      *     These are the bytes to decompress.
      *
+     * @param[out] output
+     *     This is where to store the decompressed bytes.
+     *
      * @param[in] mode
      *     This identifies the decompression scheme to use.
+     *
+     * @return
+     *     An indication of whether or not the bytes were successfully
+     *     decompressed is returned.
      */
-    std::vector< uint8_t > Inflate(
+    bool Inflate(
         const std::vector< uint8_t >& input,
+        std::vector< uint8_t >& output,
         InflateMode mode
     );
 
@@ -59,11 +67,19 @@ namespace Http {
      * @param[in] input
      *     These are the bytes to decompress.
      *
+     * @param[out] output
+     *     This is where to store the decompressed bytes.
+     *
      * @param[in] mode
      *     This identifies the decompression scheme to use.
+     *
+     * @return
+     *     An indication of whether or not the bytes were successfully
+     *     decompressed is returned.
      */
-    std::string Inflate(
+    bool Inflate(
         const std::string& input,
+        std::string& output,
         InflateMode mode
     );
 
