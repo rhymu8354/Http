@@ -893,12 +893,7 @@ namespace Http {
                 auto& client = clients[clientAddress];
                 BanHammer(client, clientAddress);
             } else {
-                for (const auto& connectionToken: response.headers.GetHeaderMultiValue("Connection")) {
-                    if (connectionToken == "close") {
-                        closeRequested = true;
-                        break;
-                    }
-                }
+                closeRequested = response.headers.HasHeaderToken("Connection", "close");
             }
             if (closeRequested) {
                 connectionState->acceptingRequests = false;
@@ -1161,16 +1156,8 @@ namespace Http {
                         response.headers.SetHeader("Content-Type", "text/plain");
                         response.body = "FeelsBadMan\r\n";
                     }
-                    const auto requestConnectionTokens = request->headers.GetHeaderMultiValue("Connection");
-                    bool closeRequested = false;
-                    for (const auto& connectionToken: requestConnectionTokens) {
-                        if (connectionToken == "close") {
-                            closeRequested = true;
-                            break;
-                        }
-                    }
-                    if (closeRequested) {
-                        auto responseConnectionTokens = response.headers.GetHeaderMultiValue("Connection");
+                    if (request->headers.HasHeaderToken("Connection", "close")) {
+                        auto responseConnectionTokens = response.headers.GetHeaderTokens("Connection");
                         bool closeResponded = false;
                         for (const auto& connectionToken: responseConnectionTokens) {
                             if (connectionToken == "close") {
