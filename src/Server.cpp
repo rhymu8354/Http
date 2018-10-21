@@ -1374,6 +1374,7 @@ namespace Http {
             impl_->transport->ReleaseNetwork();
             impl_->transport = nullptr;
         }
+        impl_->timeKeeper = nullptr;
         impl_->mobilized = false;
     }
 

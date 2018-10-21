@@ -623,12 +623,22 @@ TEST_F(ServerTests, MobilizeRandomPort) {
 
 TEST_F(ServerTests, Demobilize) {
     auto transport = std::make_shared< MockTransport >();
-    Http::Server::MobilizationDependencies deps;
-    deps.transport = transport;
-    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
-    server.SetConfigurationItem("Port", "1234");
-    (void)server.Mobilize(deps);
-    server.Demobilize();
+    bool timeKeeperReleased = false;
+    {
+        Http::Server::MobilizationDependencies deps;
+        deps.transport = transport;
+        deps.timeKeeper = std::shared_ptr< MockTimeKeeper >(
+            new MockTimeKeeper(),
+            [&timeKeeperReleased](MockTimeKeeper* p) {
+                delete p;
+                timeKeeperReleased = true;
+            }
+        );
+        server.SetConfigurationItem("Port", "1234");
+        (void)server.Mobilize(deps);
+        server.Demobilize();
+    }
+    ASSERT_TRUE(timeKeeperReleased);
     ASSERT_FALSE(transport->bound);
 }
 
