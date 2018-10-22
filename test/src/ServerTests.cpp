@@ -2530,14 +2530,24 @@ TEST_F(ServerTests, GzippedResponse) {
     EXPECT_EQ("33", response->headers.GetHeaderValue("Content-Length"));
     EXPECT_EQ("gzip", response->headers.GetHeaderValue("Content-Encoding"));
     EXPECT_TRUE(response->headers.HasHeaderToken("Vary", "Accept-Encoding"));
+    // NOTE: ignore 10th byte, because that contains an operating-system code,
+    // which is obviously going to be different depending on what platform
+    // we build and test this code.
     EXPECT_EQ(
         std::string(
-            "\x1F\x8B\x08\x00\x00\x00\x00\x00\x00\x0A\xF3\x48\xCD\xC9\xC9\xD7"
+            "\x1F\x8B\x08\x00\x00\x00\x00\x00\x00",
+            9
+        ),
+        response->body.substr(0, 9)
+    );
+    EXPECT_EQ(
+        std::string(
+            "\xF3\x48\xCD\xC9\xC9\xD7"
             "\x51\x08\xCF\x2F\xCA\x49\x51\x04\x00\xD0\xC3\x4A\xEC\x0D\x00\x00"
             "\x00",
-            33
+            23
         ),
-        response->body
+        response->body.substr(10)
     );
     connection->dataReceived.clear();
 }
