@@ -497,6 +497,7 @@ namespace {
             ) {
                 connectionState->connection->Break(false);
             }
+            connectionState->currentTransaction.reset();
             stateChange.notify_all();
         }
 
@@ -580,6 +581,12 @@ namespace Http {
          */
         typedef std::map< unsigned int, std::weak_ptr< TransactionImpl > > TransactionCollection;
 
+        /**
+         * This is the type used to hold client connection states for a given
+         * server.
+         */
+        typedef std::set< std::shared_ptr< ClientConnectionState > > ConnectionPool;
+
         // Properties
 
         /**
@@ -613,7 +620,7 @@ namespace Http {
         /**
          * This is used to hold onto persistent connections to servers.
          */
-        std::map< std::string, std::shared_ptr< ClientConnectionState > > persistentConnections;
+        std::map< std::string, ConnectionPool > persistentConnections;
 
         /**
          * This is the collection of client transactions currently active,
@@ -803,7 +810,15 @@ namespace Http {
         {
             std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
             const auto persistentConnectionsEntry = impl_->persistentConnections.find(serverId);
-            if (persistentConnectionsEntry == impl_->persistentConnections.end()) {
+            if (persistentConnectionsEntry != impl_->persistentConnections.end()) {
+                for (const auto& persistentConnection: persistentConnectionsEntry->second) {
+                    if (persistentConnection->currentTransaction.lock() == nullptr) {
+                        connectionState = persistentConnection;
+                        break;
+                    }
+                }
+            }
+            if (connectionState == nullptr) {
                 connectionState = std::make_shared< ClientConnectionState >();
                 std::weak_ptr< ClientConnectionState > connectionStateWeak(connectionState);
                 const auto brokenDelegate = [this, connectionStateWeak, serverId]{
@@ -812,7 +827,11 @@ namespace Http {
                         return;
                     }
                     std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
-                    (void)impl_->persistentConnections.erase(serverId);
+                    auto& connectionPool = impl_->persistentConnections[serverId];
+                    (void)connectionPool.erase(connectionState);
+                    if (connectionPool.empty()) {
+                        (void)impl_->persistentConnections.erase(serverId);
+                    }
                 };
                 auto timeKeeper = impl_->timeKeeper;
                 connectionState->connection = impl_->transport->Connect(
@@ -855,8 +874,6 @@ namespace Http {
                         brokenDelegate();
                     }
                 );
-            } else {
-                connectionState = persistentConnectionsEntry->second;
             }
         }
         {
@@ -888,9 +905,13 @@ namespace Http {
         {
             std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
             if (persistConnection) {
-                impl_->persistentConnections[serverId] = connectionState;
+                (void)impl_->persistentConnections[serverId].insert(connectionState);
             } else {
-                (void)impl_->persistentConnections.erase(serverId);
+                auto& connectionPool = impl_->persistentConnections[serverId];
+                (void)connectionPool.erase(connectionState);
+                if (connectionPool.empty()) {
+                    (void)impl_->persistentConnections.erase(serverId);
+                }
             }
             impl_->activeTransactions[impl_->nextTransactionId++] = transaction;
         }

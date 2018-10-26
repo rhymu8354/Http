@@ -812,6 +812,7 @@ TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
 TEST_F(ClientTests, TwoRequestsSameServerReusesPersistentConnection) {
     // Set up the client.
     const auto transport = std::make_shared< MockTransport >();
+    transport->connectionsAllowed = 2;
     Http::Client::MobilizationDependencies deps;
     deps.transport = transport;
     deps.timeKeeper = std::make_shared< MockTimeKeeper >();
@@ -1429,4 +1430,52 @@ TEST_F(ClientTests, GetRequestGzippedByServerUngzippedByClientEmpty) {
     EXPECT_EQ("", transaction->response.headers.GetHeaderValue("Content-Encoding"));
     EXPECT_EQ("0", transaction->response.headers.GetHeaderValue("Content-Length"));
     EXPECT_EQ("", transaction->response.body);
+}
+
+TEST_F(ClientTests, SecondRequestPersistentSameServerOpensSecondConnection) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    transport->connectionsAllowed = 2;
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request, using a persistent connection.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    auto transaction1 = client.Request(outgoingRequest, true);
+    auto connection1 = transport->connections[0];
+
+    // Have the client make the same request a second time, using a persistent
+    // connection as well.
+    auto transaction2 = client.Request(outgoingRequest, true);
+    ASSERT_EQ(2, transport->connections.size());
+    auto connection2 = transport->connections[1];
+
+    // Provide a response back to the client for the first transaction, in one
+    // piece.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "8");
+    response.body = "PogChamp";
+    auto responseEncoding = response.Generate();
+    connection1->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Provide a response back to the client for the second transaction, in one
+    // piece.
+    response.headers.SetHeader("Content-Length", "7");
+    response.body = "Poggers";
+    responseEncoding = response.Generate();
+    connection2->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transactions to complete.
+    ASSERT_TRUE(transaction1->AwaitCompletion(std::chrono::milliseconds(100)));
+    ASSERT_TRUE(transaction2->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ("PogChamp", transaction1->response.body);
+    EXPECT_EQ("Poggers", transaction2->response.body);
 }
