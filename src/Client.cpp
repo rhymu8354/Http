@@ -460,22 +460,33 @@ namespace {
 
         /**
          * This method is called whenever the transaction is completed
-         * and we aren't holding the object's mutex.
+         * and we aren't holding the object's mutex.  The call has no
+         * effect if the transaction is already complete.
+         *
+         * @param[in] endState
+         *     This is the state to which to transition the transaction
+         *     if this call causes it to be completed.
          */
-        void Complete() {
+        void Complete(Transaction::State endState) {
             std::lock_guard< decltype(mutex) > lock(mutex);
-            CompleteWithLock();
+            CompleteWithLock(endState);
         }
 
         /**
          * This method is called whenever the transaction is completed
-         * while we're holding the object's mutex.
+         * while we're holding the object's mutex.  The call has no
+         * effect if the transaction is already complete.
+         *
+         * @param[in] endState
+         *     This is the state to which to transition the transaction
+         *     if this call causes it to be completed.
          */
-        void CompleteWithLock() {
+        void CompleteWithLock(Transaction::State endState) {
             if (complete) {
                 return;
             }
             complete = true;
+            state = endState;
             const auto connection = connectionState->connection;
             if (
                 (connectionState->connection != nullptr)
@@ -494,6 +505,9 @@ namespace {
          */
         void DataReceived(const std::vector< uint8_t >& data) {
             std::lock_guard< decltype(mutex) > lock(mutex);
+            if (complete) {
+                return;
+            }
             reassemblyBuffer += std::string(data.begin(), data.end());
             const auto charactersAccepted = ParseResponseImpl(
                 response,
@@ -506,9 +520,29 @@ namespace {
                 reassemblyBuffer.begin() + charactersAccepted
             );
             if (response.IsCompleteOrError()) {
-                state = Transaction::State::Completed;
-                CompleteWithLock();
+                CompleteWithLock(State::Completed);
             }
+        }
+
+        /**
+         * This method is called if the connection to the server is broken.
+         */
+        void ConnectionBroken() {
+            std::lock_guard< decltype(mutex) > lock(mutex);
+            if (complete) {
+                return;
+            }
+            State endState;
+            if (response.IsCompleteOrError(false)) {
+                response.headers.SetHeader(
+                    "Content-Length",
+                    SystemAbstractions::sprintf("%zu", response.body.length())
+                );
+                endState = State::Completed;
+            } else {
+                endState = State::Broken;
+            }
+            CompleteWithLock(endState);
         }
 
         // Http::Client::Transaction
@@ -674,8 +708,7 @@ namespace Http {
                         if (transaction == nullptr) {
                             return;
                         }
-                        transaction->state = Transaction::State::Timeout;
-                        transaction->Complete();
+                        transaction->Complete(Transaction::State::Timeout);
                     }
                     timedOutConnectionStates.clear();
                     lock.lock();
@@ -778,16 +811,7 @@ namespace Http {
                             return;
                         }
                         if (!transaction->complete) {
-                            if (transaction->response.IsCompleteOrError(false)) {
-                                transaction->response.headers.SetHeader(
-                                    "Content-Length",
-                                    SystemAbstractions::sprintf("%zu", transaction->response.body.length())
-                                );
-                                transaction->state = Transaction::State::Completed;
-                            } else {
-                                transaction->state = Transaction::State::Broken;
-                            }
-                            transaction->Complete();
+                            transaction->ConnectionBroken();
                         }
                         brokenDelegate();
                     }
@@ -802,8 +826,7 @@ namespace Http {
         }
         transaction->connectionState = connectionState;
         if (connectionState->connection == nullptr) {
-            transaction->state = Transaction::State::UnableToConnect;
-            transaction->Complete();
+            transaction->Complete(Transaction::State::UnableToConnect);
             return transaction;
         }
         transaction->persistConnection = persistConnection;
