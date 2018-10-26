@@ -1103,6 +1103,36 @@ TEST_F(ClientTests, ResponseTimeoutPersistentConnectionNotReused) {
     EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
 }
 
+TEST_F(ClientTests, ResponseTimeoutNotPersistentConnection) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    transport->connectionsAllowed = 2;
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    deps.requestTimeoutSeconds = 1.0;
+    client.Mobilize(deps);
+
+    // Have the client make a simple request, not using a persistent
+    // connection.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    auto transaction = client.Request(outgoingRequest, false);
+    auto connection = transport->connections[0];
+    auto incomingRequest = connection->requests[0];
+    EXPECT_FALSE(connection->broken);
+    EXPECT_TRUE(incomingRequest.headers.HasHeaderToken("Connection", "Close"));
+
+    // Allow enough time to pass such that the request will time out.
+    timeKeeper->currentTime = 1.5;
+
+    // Wait for client transaction to complete, expecting a timeout.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::Timeout, transaction->state);
+}
+
 TEST_F(ClientTests, ReceiveWholeBodyForResponseWithoutContentLengthOrTransferCoding) {
     // Set up the client.
     const auto transport = std::make_shared< MockTransport >();

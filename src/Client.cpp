@@ -394,13 +394,6 @@ namespace {
         std::weak_ptr< struct TransactionImpl > currentTransaction;
 
         /**
-         * This is the time at which the connection was established,
-         * or the last data was received from the server, whichever
-         * was most recent.
-         */
-        double lastReceiveTime = 0.0;
-
-        /**
          * This is used to synchronize access to this object.
          */
         std::mutex mutex;
@@ -414,6 +407,13 @@ namespace {
         : public Http::Client::Transaction
     {
         // Properties
+
+        /**
+         * This is the time at which the transaction was started,
+         * or the last data was received for the transaction, whichever
+         * was most recent.
+         */
+        double lastReceiveTime = 0.0;
 
         /**
          * This is a utility used to decode the body of the response
@@ -490,7 +490,10 @@ namespace {
             const auto connection = connectionState->connection;
             if (
                 (connectionState->connection != nullptr)
-                && !persistConnection
+                && (
+                    !persistConnection
+                    || (state == State::Timeout)
+                )
             ) {
                 connectionState->connection->Break(false);
             }
@@ -567,6 +570,16 @@ namespace Http {
      * This contains the private properties of a Client instance.
      */
     struct Client::Impl {
+        // Types
+
+        /**
+         * This is the type used to handle collections of transactions that the
+         * client knows about.  The keys are arbitrary (but unique for the
+         * client instance) identifiers used to help select transactions from
+         * collections.
+         */
+        typedef std::map< unsigned int, std::weak_ptr< TransactionImpl > > TransactionCollection;
+
         // Properties
 
         /**
@@ -603,6 +616,12 @@ namespace Http {
         std::map< std::string, std::shared_ptr< ClientConnectionState > > persistentConnections;
 
         /**
+         * This is the collection of client transactions currently active,
+         * keyed by transaction ID.
+         */
+        TransactionCollection activeTransactions;
+
+        /**
          * This is used to synchronize access to the object.
          */
         std::mutex mutex;
@@ -616,6 +635,11 @@ namespace Http {
          * This flag indicates whether or not the worker thread should stop.
          */
         bool stopWorker = false;
+
+        /**
+         * This is the ID to assign to the next transaction.
+         */
+        unsigned int nextTransactionId = 1;
 
         /**
          * This thread performs background housekeeping for the client, such as:
@@ -671,6 +695,44 @@ namespace Http {
         }
 
         /**
+         * This method checks all the transactions in the given set to
+         * see if any are completed or should be completed due to timeout.
+         * Any transactions that should be completed due to timeout are
+         * completed.
+         *
+         * @param[in] transactions
+         *     These are the transactions to check.
+         *
+         * @return
+         *     The transactions which have been completed are returned.
+         */
+        TransactionCollection CheckTransactions(
+            const TransactionCollection& transactions
+        ) {
+            const auto now = timeKeeper->GetCurrentTime();
+            TransactionCollection completedTransactions;
+            for (const auto& transactionsEntry: transactions) {
+                bool isCompleted = false;
+                auto transaction = transactionsEntry.second.lock();
+                if (transaction == nullptr) {
+                    isCompleted = true;
+                } else {
+                    std::lock_guard< decltype(transaction->mutex) > lock(transaction->mutex);
+                    if (transaction->complete) {
+                        isCompleted = true;
+                    } else if (now - transaction->lastReceiveTime >= requestTimeoutSeconds) {
+                        transaction->CompleteWithLock(Transaction::State::Timeout);
+                        isCompleted = true;
+                    }
+                }
+                if (isCompleted) {
+                    (void)completedTransactions.insert(transactionsEntry);
+                }
+            }
+            return completedTransactions;
+        }
+
+        /**
          * This thread performs background housekeeping for the client, such as:
          * - Drop any persistent connections which have broken.
          * - Complete any transactions that have timed out.
@@ -683,35 +745,12 @@ namespace Http {
                     std::chrono::milliseconds(CONNECTION_POLLING_PERIOD_MILLISECONDS),
                     [this]{ return stopWorker; }
                 );
-                const auto now = timeKeeper->GetCurrentTime();
-                std::set< std::shared_ptr< ClientConnectionState > > timedOutConnectionStates;
-                for (
-                    auto persistentConnectionsEntry = persistentConnections.begin();
-                    persistentConnectionsEntry != persistentConnections.end();
-                ) {
-                    auto persistentConnection = persistentConnectionsEntry->second;
-                    if (now - persistentConnection->lastReceiveTime >= requestTimeoutSeconds) {
-                        (void)timedOutConnectionStates.insert(persistentConnection);
-                        persistentConnectionsEntry = persistentConnections.erase(persistentConnectionsEntry);
-                    } else {
-                        ++persistentConnectionsEntry;
-                    }
-                }
-                {
-                    lock.unlock();
-                    for (auto connectionState: timedOutConnectionStates) {
-                        std::shared_ptr< TransactionImpl > transaction;
-                        {
-                            std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
-                            transaction = connectionState->currentTransaction.lock();
-                        }
-                        if (transaction == nullptr) {
-                            return;
-                        }
-                        transaction->Complete(Transaction::State::Timeout);
-                    }
-                    timedOutConnectionStates.clear();
-                    lock.lock();
+                TransactionCollection activeTransactionsCopy(activeTransactions);
+                lock.unlock();
+                auto completedTransactions = CheckTransactions(activeTransactionsCopy);
+                lock.lock();
+                for (const auto completedTransaction: completedTransactions) {
+                    (void)activeTransactions.erase(completedTransaction.first);
                 }
             }
         }
@@ -749,6 +788,7 @@ namespace Http {
         bool persistConnection
     ) -> std::shared_ptr< Transaction > {
         const auto transaction = std::make_shared< TransactionImpl >();
+        transaction->lastReceiveTime = impl_->timeKeeper->GetCurrentTime();
         const auto& hostNameOrAddress = request.target.GetHost();
         auto port = DEFAULT_HTTP_PORT_NUMBER;
         if (request.target.HasPort()) {
@@ -765,7 +805,6 @@ namespace Http {
             const auto persistentConnectionsEntry = impl_->persistentConnections.find(serverId);
             if (persistentConnectionsEntry == impl_->persistentConnections.end()) {
                 connectionState = std::make_shared< ClientConnectionState >();
-                connectionState->lastReceiveTime = impl_->timeKeeper->GetCurrentTime();
                 std::weak_ptr< ClientConnectionState > connectionStateWeak(connectionState);
                 const auto brokenDelegate = [this, connectionStateWeak, serverId]{
                     const auto connectionState = connectionStateWeak.lock();
@@ -784,7 +823,6 @@ namespace Http {
                         if (connectionState == nullptr) {
                             return;
                         }
-                        connectionState->lastReceiveTime = timeKeeper->GetCurrentTime();
                         std::shared_ptr< TransactionImpl > transaction;
                         {
                             std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
@@ -794,6 +832,7 @@ namespace Http {
                             return;
                         }
                         if (!transaction->complete) {
+                            transaction->lastReceiveTime = timeKeeper->GetCurrentTime();
                             transaction->DataReceived(data);
                         }
                     },
@@ -853,6 +892,7 @@ namespace Http {
             } else {
                 (void)impl_->persistentConnections.erase(serverId);
             }
+            impl_->activeTransactions[impl_->nextTransactionId++] = transaction;
         }
         return transaction;
     }
