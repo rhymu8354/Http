@@ -42,6 +42,13 @@ namespace Http {
          */
         static constexpr double DEFAULT_REQUEST_TIMEOUT_SECONDS = 10.0;
 
+        /**
+         * This is the default amount of time that can pass without a transaction
+         * reusing a persistent connection, before the client closes
+         * the connection due to inactivity.
+         */
+        static constexpr double DEFAULT_INACTIVITY_INTERVAL_SECONDS = 60.0;
+
         // Types
     public:
         /**
@@ -66,6 +73,13 @@ namespace Http {
              * if no part of a response has been received.
              */
             double requestTimeoutSeconds = DEFAULT_REQUEST_TIMEOUT_SECONDS;
+
+            /**
+             * This is the amount of time, after a transaction is completed,
+             * that a persistent connection is closed if another transaction
+             * does not reuse the connection.
+             */
+            double inactivityInterval = DEFAULT_INACTIVITY_INTERVAL_SECONDS;
         };
 
         /**

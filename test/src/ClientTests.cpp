@@ -8,6 +8,7 @@
  */
 
 #include <condition_variable>
+#include <functional>
 #include <gtest/gtest.h>
 #include <Http/Client.hpp>
 #include <Http/Request.hpp>
@@ -20,17 +21,6 @@
 #include <SystemAbstractions/StringExtensions.hpp>
 
 namespace {
-
-    /**
-     * This flag is used to cause a crash in MockConnection's destructor
-     * if it's called while the flag is set to true.
-     */
-    bool crashOnConnectionDestruction = false;
-
-    /**
-     * This flag is set whenever a MockConnection is destroyed.
-     */
-    bool connectionDestroyed = false;
 
     /**
      * This is a fake server connection which is used to test the client.
@@ -101,6 +91,12 @@ namespace {
         bool brokenGracefully = false;
 
         /**
+         * If not nullptr, this is a function to call when the connection is
+         * destroyed.
+         */
+        std::function< void() > onDestruction;
+
+        /**
          * This flag indicates whether or not the mock connection
          * should deliver some data right before breaking its end
          * of the connection, when receiving an abrupt break.
@@ -109,10 +105,9 @@ namespace {
 
         // Lifecycle management
         ~MockConnection() noexcept {
-            if (crashOnConnectionDestruction) {
-                abort();
+            if (onDestruction != nullptr) {
+                onDestruction();
             }
-            connectionDestroyed = true;
         }
         MockConnection(const MockConnection&) = delete;
         MockConnection(MockConnection&&) noexcept = delete;
@@ -751,10 +746,11 @@ TEST_F(ClientTests, NonPersistentConnectionReleasedAfterTransactionCompleted) {
     transaction = nullptr;
 
     // Verify the connection was released.
-    std::weak_ptr< MockConnection > connectionWeak(connection);
+    bool connectionDestroyed = false;
+    connection->onDestruction = [&connectionDestroyed]{ connectionDestroyed = true; };
     connection = nullptr;
     transport->connections.clear();
-    ASSERT_TRUE(connectionWeak.lock() == nullptr);
+    EXPECT_TRUE(connectionDestroyed);
 }
 
 TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
@@ -796,15 +792,14 @@ TEST_F(ClientTests, NonPersistentConnectionClosedProperly) {
     EXPECT_FALSE(connection->brokenGracefully);
 
     // Release all strong connection references, and verify the connection is not yet
-    // destroyed (through a global flag which causes the connection destructor to
-    // crash the test).
-    crashOnConnectionDestruction = true;
+    // destroyed.
+    bool connectionDestroyed = false;
+    connection->onDestruction = [&connectionDestroyed]{ connectionDestroyed = true; };
     connection = nullptr;
     transport->connections.clear();
+    EXPECT_FALSE(connectionDestroyed);
 
     // Release the transaction, and verify the connection is finally destroyed.
-    crashOnConnectionDestruction = false;
-    connectionDestroyed = false;
     transaction = nullptr;
     EXPECT_TRUE(connectionDestroyed);
 }
@@ -1184,15 +1179,14 @@ TEST_F(ClientTests, ReceiveWholeBodyForResponseWithoutContentLengthOrTransferCod
     EXPECT_FALSE(connection->brokenGracefully);
 
     // Release all strong connection references, and verify the connection is not yet
-    // destroyed (through a global flag which causes the connection destructor to
-    // crash the test).
-    crashOnConnectionDestruction = true;
+    // destroyed.
+    bool connectionDestroyed = false;
+    connection->onDestruction = [&connectionDestroyed]{ connectionDestroyed = true; };
     connection = nullptr;
     transport->connections.clear();
+    EXPECT_FALSE(connectionDestroyed);
 
     // Release the transaction, and verify the connection is finally destroyed.
-    crashOnConnectionDestruction = false;
-    connectionDestroyed = false;
     transaction = nullptr;
     EXPECT_TRUE(connectionDestroyed);
 }
@@ -1478,4 +1472,76 @@ TEST_F(ClientTests, SecondRequestPersistentSameServerOpensSecondConnection) {
     ASSERT_TRUE(transaction2->AwaitCompletion(std::chrono::milliseconds(100)));
     EXPECT_EQ("PogChamp", transaction1->response.body);
     EXPECT_EQ("Poggers", transaction2->response.body);
+}
+
+TEST_F(ClientTests, PersistentConnectionReleasedAfterInactivityPeriod) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    deps.requestTimeoutSeconds = 10.0;
+    deps.inactivityInterval = 60.0;
+    client.Mobilize(deps);
+
+    // Have the client make a simple request with a persistent connection.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    auto transaction = client.Request(outgoingRequest, true);
+    auto connection = transport->connections[0];
+
+    // Advance the time a little.
+    timeKeeper->currentTime += 5.0;
+
+    // Provide a response back to the client, in one piece.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "8");
+    response.body = "PogChamp";
+    const auto& responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::Completed, transaction->state);
+
+    // Release the transaction (otherwise, it holds onto the connection).
+    transaction = nullptr;
+
+    // Verify the connection is not yet released.
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool connectionDestroyed = false;
+    connection->onDestruction = [
+        &mutex,
+        &condition,
+        &connectionDestroyed
+    ]{
+        std::unique_lock< std::mutex > lock(mutex);
+        connectionDestroyed = true;
+        condition.notify_one();
+    };
+    connection = nullptr;
+    transport->connections.clear();
+    EXPECT_FALSE(connectionDestroyed);
+
+    // Advance the time past one inactivity interval.
+    timeKeeper->currentTime += deps.inactivityInterval;
+
+    // Verify the connection is finally released.
+    {
+        std::unique_lock< decltype(mutex) > lock(mutex);
+        EXPECT_TRUE(
+            condition.wait_for(
+                lock,
+                std::chrono::milliseconds(100),
+                [&connectionDestroyed]{ return connectionDestroyed; }
+            )
+        );
+    }
 }

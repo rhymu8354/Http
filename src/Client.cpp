@@ -394,6 +394,12 @@ namespace {
         std::weak_ptr< struct TransactionImpl > currentTransaction;
 
         /**
+         * This is the time at which the connection was last used for a
+         * transaction.
+         */
+        double lastTransactionTime = 0.0;
+
+        /**
          * This is used to synchronize access to this object.
          */
         std::mutex mutex;
@@ -618,6 +624,13 @@ namespace Http {
         double requestTimeoutSeconds = DEFAULT_REQUEST_TIMEOUT_SECONDS;
 
         /**
+         * This is the amount of time, after a transaction is completed,
+         * that a persistent connection is closed if another transaction
+         * does not reuse the connection.
+         */
+        double inactivityInterval = DEFAULT_INACTIVITY_INTERVAL_SECONDS;
+
+        /**
          * This is used to hold onto persistent connections to servers.
          */
         std::map< std::string, ConnectionPool > persistentConnections;
@@ -747,11 +760,15 @@ namespace Http {
         void Worker() {
             std::unique_lock< decltype(mutex) > lock(mutex);
             while (!stopWorker) {
+                // Wait one polling period.
                 (void)workerWakeCondition.wait_for(
                     lock,
                     std::chrono::milliseconds(CONNECTION_POLLING_PERIOD_MILLISECONDS),
                     [this]{ return stopWorker; }
                 );
+
+                // Check for completed or timed-out transactions, and remove
+                // any that have completed.
                 TransactionCollection activeTransactionsCopy(activeTransactions);
                 lock.unlock();
                 auto completedTransactions = CheckTransactions(activeTransactionsCopy);
@@ -759,6 +776,36 @@ namespace Http {
                 for (const auto completedTransaction: completedTransactions) {
                     (void)activeTransactions.erase(completedTransaction.first);
                 }
+
+                // Check for inactive persistent connections.
+                const auto now = timeKeeper->GetCurrentTime();
+                std::set< std::shared_ptr< ClientConnectionState > > inactiveConnections;
+                for (
+                    auto persistentConnectionsEntry = persistentConnections.begin();
+                    persistentConnectionsEntry != persistentConnections.end();
+                ) {
+                    for (
+                        auto persistentConnection = persistentConnectionsEntry->second.begin();
+                        persistentConnection != persistentConnectionsEntry->second.end();
+                    ) {
+                        if (now - (*persistentConnection)->lastTransactionTime >= inactivityInterval) {
+                            (void)inactiveConnections.insert(*persistentConnection);
+                            persistentConnection = persistentConnectionsEntry->second.erase(persistentConnection);
+                        } else {
+                            ++persistentConnection;
+                        }
+                    }
+                    if (persistentConnectionsEntry->second.empty()) {
+                        persistentConnectionsEntry = persistentConnections.erase(persistentConnectionsEntry);
+                    } else {
+                        ++persistentConnectionsEntry;
+                    }
+                }
+
+                // Drop inactive persistent connections.
+                lock.unlock();
+                inactiveConnections.clear();
+                lock.lock();
             }
         }
     };
@@ -786,6 +833,7 @@ namespace Http {
         impl_->transport = deps.transport;
         impl_->timeKeeper = deps.timeKeeper;
         impl_->requestTimeoutSeconds = deps.requestTimeoutSeconds;
+        impl_->inactivityInterval = deps.inactivityInterval;
         impl_->mobilized = true;
         impl_->Mobilize();
     }
@@ -875,6 +923,7 @@ namespace Http {
                     }
                 );
             }
+            connectionState->lastTransactionTime = impl_->timeKeeper->GetCurrentTime();
         }
         {
             std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
