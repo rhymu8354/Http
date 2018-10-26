@@ -400,9 +400,15 @@ namespace {
         double lastTransactionTime = 0.0;
 
         /**
+         * This flag indicates whether or not the connection to the server has
+         * been broken.
+         */
+        bool broken = false;
+
+        /**
          * This is used to synchronize access to this object.
          */
-        std::mutex mutex;
+        std::recursive_mutex mutex;
     };
 
     /**
@@ -466,7 +472,7 @@ namespace {
 
         /**
          * This method is called whenever the transaction is completed
-         * and we aren't holding the object's mutex.  The call has no
+         * while we're holding the object's mutex.  The call has no
          * effect if the transaction is already complete.
          *
          * @param[in] endState
@@ -475,35 +481,24 @@ namespace {
          */
         void Complete(Transaction::State endState) {
             std::lock_guard< decltype(mutex) > lock(mutex);
-            CompleteWithLock(endState);
-        }
-
-        /**
-         * This method is called whenever the transaction is completed
-         * while we're holding the object's mutex.  The call has no
-         * effect if the transaction is already complete.
-         *
-         * @param[in] endState
-         *     This is the state to which to transition the transaction
-         *     if this call causes it to be completed.
-         */
-        void CompleteWithLock(Transaction::State endState) {
             if (complete) {
                 return;
             }
             complete = true;
             state = endState;
-            const auto connection = connectionState->connection;
-            if (
-                (connectionState->connection != nullptr)
-                && (
+            if (connectionState->connection != nullptr) {
+                std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
+                if (
                     !persistConnection
                     || (state == State::Timeout)
-                )
-            ) {
-                connectionState->connection->Break(false);
+                ) {
+                    connectionState->connection->Break(false);
+                }
+                connectionState->currentTransaction.reset();
+                // TODO: figure out how to update last transaction time;
+                // we don't have the timekeeper here.
+                // connectionState->lastTransactionTime = now;
             }
-            connectionState->currentTransaction.reset();
             stateChange.notify_all();
         }
 
@@ -530,7 +525,7 @@ namespace {
                 reassemblyBuffer.begin() + charactersAccepted
             );
             if (response.IsCompleteOrError()) {
-                CompleteWithLock(State::Completed);
+                Complete(State::Completed);
             }
         }
 
@@ -552,7 +547,7 @@ namespace {
             } else {
                 endState = State::Broken;
             }
-            CompleteWithLock(endState);
+            Complete(endState);
         }
 
         // Http::Client::Transaction
@@ -567,6 +562,171 @@ namespace {
                 [this]{ return complete; }
             );
         };
+    };
+
+    /**
+     * This represents the pool of persistent connections available to a Client
+     * instance.
+     */
+    class ClientConnectionPool {
+        // Types
+    public:
+        /**
+         * This is the type used to hold  a set of related client connections.
+         */
+        typedef std::set< std::shared_ptr< ClientConnectionState > > ConnectionSet;
+
+        // Public Methods
+    public:
+        /**
+         * This method marks as broken and removes from the connection pool any
+         * connections whose last transaction time is before the given cutoff
+         * time.
+         *
+         * @param[in] cutoff
+         *     This is the time to compare to the last transaction times of
+         *     connections to select the connections to drop.
+         *
+         * @return
+         *     The set of connections removed from the connection pool
+         *     is returned.
+         */
+        std::set< std::shared_ptr< ClientConnectionState > > DropInactive(double cutoff) {
+            std::lock_guard< decltype(mutex) > poolLock(mutex);
+            std::set< std::shared_ptr< ClientConnectionState > > inactiveConnections;
+            for (
+                auto connectionsEntry = connections.begin();
+                connectionsEntry != connections.end();
+            ) {
+                for (
+                    auto connection = connectionsEntry->second.begin();
+                    connection != connectionsEntry->second.end();
+                ) {
+                    std::lock_guard< decltype((*connection)->mutex) > connectionLock((*connection)->mutex);
+                    if (
+                        ((*connection)->currentTransaction.lock() == nullptr)
+                        && ((*connection)->lastTransactionTime <= cutoff)
+                    ) {
+                        (*connection)->broken = true;
+                        (void)inactiveConnections.insert(*connection);
+                        connection = connectionsEntry->second.erase(connection);
+                    } else {
+                        ++connection;
+                    }
+                }
+                if (connectionsEntry->second.empty()) {
+                    connectionsEntry = connections.erase(connectionsEntry);
+                } else {
+                    ++connectionsEntry;
+                }
+            }
+            return inactiveConnections;
+        }
+
+        /**
+         * This method attempts to find a connection in the pool that isn't
+         * broken and doesn't have any transaction using it.  If one is found,
+         * the given transaction is assigned to it, and the connection is
+         * returned.  Otherwise, nullptr is returned.
+         *
+         * @param[in] serverId
+         *     This is a unique identifier of the server for which a connection
+         *     is needed, in the form "host:port".
+         *
+         * @param[in] transaction
+         *     This is the transaction to attach to a free connection,
+         *     if found.
+         *
+         * @param[in] transactionTime
+         *     This is the time at which the transaction began.
+         *
+         * @return
+         *     If the given transaction was successfully assigned to a
+         *     connection, the connection is returned.
+         *
+         * @retval nullptr
+         *     This is returned if no free connection could be found for
+         *     the transaction.
+         */
+        std::shared_ptr< ClientConnectionState > AttachTransaction(
+            const std::string& serverId,
+            std::shared_ptr< TransactionImpl > transaction,
+            double transactionTime
+        ) {
+            std::lock_guard< decltype(mutex) > poolLock(mutex);
+            const auto connectionsEntry = connections.find(serverId);
+            if (connectionsEntry != connections.end()) {
+                for (const auto& connection: connectionsEntry->second) {
+                    std::lock_guard< decltype(connection->mutex) > connectionLock(connection->mutex);
+                    if (
+                        !connection->broken
+                        && (connection->currentTransaction.lock() == nullptr)
+                    ) {
+                        connection->currentTransaction = transaction;
+                        connection->lastTransactionTime = transactionTime;
+                        return connection;
+                    }
+                }
+            }
+            return nullptr;
+        }
+
+        /**
+         * This method adds the given connection to the pool, if it isn't
+         * broken.
+         *
+         * @param[in] serverId
+         *     This is a unique identifier of the server end of the connection,
+         *     in the form "host:port".
+         *
+         * @param[in] connection
+         *     This is the connection to add to the pool.
+         */
+        void AddConnection(
+            const std::string& serverId,
+            std::shared_ptr< ClientConnectionState > connection
+        ) {
+            std::lock_guard< decltype(mutex) > poolLock(mutex);
+            std::lock_guard< decltype(connection->mutex) > connectionLock(connection->mutex);
+            if (!connection->broken) {
+                (void)connections[serverId].insert(connection);
+            }
+        }
+
+        /**
+         * This method removes the given connection from the pool.
+         *
+         * @param[in] serverId
+         *     This is a unique identifier of the server end of the connection,
+         *     in the form "host:port".
+         *
+         * @param[in] connection
+         *     This is the connection to remove from the pool.
+         */
+        void DropConnection(
+            const std::string& serverId,
+            std::shared_ptr< ClientConnectionState > connection
+        ) {
+            std::lock_guard< decltype(mutex) > poolLock(mutex);
+            auto& connectionPool = connections[serverId];
+            (void)connectionPool.erase(connection);
+            if (connectionPool.empty()) {
+                (void)connections.erase(serverId);
+            }
+        }
+
+        // Private Properties
+    private:
+        /**
+         * This is used to synchronize access to the object.
+         */
+        std::mutex mutex;
+
+        /**
+         * These are the connections in the pool, organized by server
+         * identifier (host:port).
+         */
+        std::map< std::string, ConnectionSet > connections;
     };
 
 }
@@ -586,12 +746,6 @@ namespace Http {
          * collections.
          */
         typedef std::map< unsigned int, std::weak_ptr< TransactionImpl > > TransactionCollection;
-
-        /**
-         * This is the type used to hold client connection states for a given
-         * server.
-         */
-        typedef std::set< std::shared_ptr< ClientConnectionState > > ConnectionPool;
 
         // Properties
 
@@ -633,7 +787,7 @@ namespace Http {
         /**
          * This is used to hold onto persistent connections to servers.
          */
-        std::map< std::string, ConnectionPool > persistentConnections;
+        std::shared_ptr< ClientConnectionPool > persistentConnections = std::make_shared< ClientConnectionPool >();
 
         /**
          * This is the collection of client transactions currently active,
@@ -715,6 +869,103 @@ namespace Http {
         }
 
         /**
+         * This method attempts to make a new connection to a given server, for
+         * use by the given transaction.
+         *
+         * @param[in] transaction
+         *     This is the transaction which needs a connection to the server.
+         *
+         * @param[in] serverId
+         *     This is a unique identifier of the server for which a connection
+         *     is needed, in the form "host:port".
+         *
+         * @param[in] hostNameOrAddress
+         *     This is the host name, or IP address in string form, of the
+         *     server to which to connect.
+         *
+         * @param[in] port
+         *     This is the TCP port number of the server to which to connect.
+         *
+         * @return
+         *     A new connection state object representing the connection is
+         *     returned, with the given transaction assigned to it.  If the
+         *     connection failed, the connection object within the connection
+         *     state object will be nullptr.
+         */
+        std::shared_ptr< ClientConnectionState > NewConnection(
+            std::shared_ptr< TransactionImpl > transaction,
+            const std::string& serverId,
+            const std::string& hostNameOrAddress,
+            uint16_t port
+        ) {
+            const auto connectionState = std::make_shared< ClientConnectionState >();
+            std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
+            std::weak_ptr< ClientConnectionState > connectionStateWeak(connectionState);
+            std::weak_ptr< ClientConnectionPool > persistentConnectionsWeak(persistentConnections);
+            auto timeKeeperRef = timeKeeper;
+            connectionState->connection = transport->Connect(
+                hostNameOrAddress,
+                port,
+                [connectionStateWeak, timeKeeperRef](const std::vector< uint8_t >& data){
+                    const auto connectionState = connectionStateWeak.lock();
+                    if (connectionState == nullptr) {
+                        return;
+                    }
+                    std::shared_ptr< TransactionImpl > transaction;
+                    {
+                        std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
+                        transaction = connectionState->currentTransaction.lock();
+                    }
+                    if (transaction == nullptr) {
+                        return;
+                    }
+                    if (!transaction->complete) {
+                        transaction->lastReceiveTime = timeKeeperRef->GetCurrentTime();
+                        transaction->DataReceived(data);
+                    }
+                },
+                [connectionStateWeak, serverId, persistentConnectionsWeak](bool){
+                    const auto connectionState = connectionStateWeak.lock();
+                    if (connectionState == nullptr) {
+                        return;
+                    }
+                    std::shared_ptr< TransactionImpl > transaction;
+                    {
+                        std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
+                        transaction = connectionState->currentTransaction.lock();
+                        connectionState->broken = true;
+                    }
+                    if (transaction == nullptr) {
+                        return;
+                    }
+                    if (!transaction->complete) {
+                        transaction->ConnectionBroken();
+                    }
+                    const auto persistentConnections = persistentConnectionsWeak.lock();
+                    if (persistentConnections != nullptr) {
+                        persistentConnections->DropConnection(serverId, connectionState);
+                    }
+                }
+            );
+            connectionState->currentTransaction = transaction;
+            connectionState->lastTransactionTime = timeKeeper->GetCurrentTime();
+            return connectionState;
+        }
+
+        /**
+         * This method adds the given transaction to the collection of
+         * transactions active for the client.
+         *
+         * @param[in] transaction
+         *     This is the transaction to add to the collection of transactions
+         *     active for the client.
+         */
+        void AddTransaction(std::shared_ptr< TransactionImpl > transaction) {
+            std::lock_guard< decltype(mutex) > lock(mutex);
+            activeTransactions[nextTransactionId++] = transaction;
+        }
+
+        /**
          * This method checks all the transactions in the given set to
          * see if any are completed or should be completed due to timeout.
          * Any transactions that should be completed due to timeout are
@@ -723,14 +974,19 @@ namespace Http {
          * @param[in] transactions
          *     These are the transactions to check.
          *
+         * @param[in] cutoff
+         *     This is the time to compare to the last receive times of
+         *     transactions to select the transactions that should be
+         *     timed out.
+         *
          * @return
-         *     The transactions which have been completed are returned.
+         *     The IDs of transactions which have been completed are returned.
          */
-        TransactionCollection CheckTransactions(
-            const TransactionCollection& transactions
+        static std::set< unsigned int > CheckTransactions(
+            const TransactionCollection& transactions,
+            double cutoff
         ) {
-            const auto now = timeKeeper->GetCurrentTime();
-            TransactionCollection completedTransactions;
+            std::set< unsigned int > completedTransactions;
             for (const auto& transactionsEntry: transactions) {
                 bool isCompleted = false;
                 auto transaction = transactionsEntry.second.lock();
@@ -740,13 +996,13 @@ namespace Http {
                     std::lock_guard< decltype(transaction->mutex) > lock(transaction->mutex);
                     if (transaction->complete) {
                         isCompleted = true;
-                    } else if (now - transaction->lastReceiveTime >= requestTimeoutSeconds) {
-                        transaction->CompleteWithLock(Transaction::State::Timeout);
+                    } else if (transaction->lastReceiveTime <= cutoff) {
+                        transaction->Complete(Transaction::State::Timeout);
                         isCompleted = true;
                     }
                 }
                 if (isCompleted) {
-                    (void)completedTransactions.insert(transactionsEntry);
+                    (void)completedTransactions.insert(transactionsEntry.first);
                 }
             }
             return completedTransactions;
@@ -771,41 +1027,19 @@ namespace Http {
                 // any that have completed.
                 TransactionCollection activeTransactionsCopy(activeTransactions);
                 lock.unlock();
-                auto completedTransactions = CheckTransactions(activeTransactionsCopy);
+                auto completedTransactionIds = CheckTransactions(
+                    activeTransactionsCopy,
+                    timeKeeper->GetCurrentTime() - requestTimeoutSeconds
+                );
                 lock.lock();
-                for (const auto completedTransaction: completedTransactions) {
-                    (void)activeTransactions.erase(completedTransaction.first);
+                for (const auto completedTransactionId: completedTransactionIds) {
+                    (void)activeTransactions.erase(completedTransactionId);
                 }
 
                 // Check for inactive persistent connections.
-                const auto now = timeKeeper->GetCurrentTime();
-                std::set< std::shared_ptr< ClientConnectionState > > inactiveConnections;
-                for (
-                    auto persistentConnectionsEntry = persistentConnections.begin();
-                    persistentConnectionsEntry != persistentConnections.end();
-                ) {
-                    for (
-                        auto persistentConnection = persistentConnectionsEntry->second.begin();
-                        persistentConnection != persistentConnectionsEntry->second.end();
-                    ) {
-                        if (now - (*persistentConnection)->lastTransactionTime >= inactivityInterval) {
-                            (void)inactiveConnections.insert(*persistentConnection);
-                            persistentConnection = persistentConnectionsEntry->second.erase(persistentConnection);
-                        } else {
-                            ++persistentConnection;
-                        }
-                    }
-                    if (persistentConnectionsEntry->second.empty()) {
-                        persistentConnectionsEntry = persistentConnections.erase(persistentConnectionsEntry);
-                    } else {
-                        ++persistentConnectionsEntry;
-                    }
-                }
-
-                // Drop inactive persistent connections.
-                lock.unlock();
-                inactiveConnections.clear();
-                lock.lock();
+                const auto droppedConnections = persistentConnections->DropInactive(
+                    timeKeeper->GetCurrentTime() - inactivityInterval
+                );
             }
         }
     };
@@ -854,80 +1088,24 @@ namespace Http {
             hostNameOrAddress.c_str(),
             port
         );
-        std::shared_ptr< ClientConnectionState > connectionState;
-        {
-            std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
-            const auto persistentConnectionsEntry = impl_->persistentConnections.find(serverId);
-            if (persistentConnectionsEntry != impl_->persistentConnections.end()) {
-                for (const auto& persistentConnection: persistentConnectionsEntry->second) {
-                    if (persistentConnection->currentTransaction.lock() == nullptr) {
-                        connectionState = persistentConnection;
-                        break;
-                    }
-                }
-            }
-            if (connectionState == nullptr) {
-                connectionState = std::make_shared< ClientConnectionState >();
-                std::weak_ptr< ClientConnectionState > connectionStateWeak(connectionState);
-                const auto brokenDelegate = [this, connectionStateWeak, serverId]{
-                    const auto connectionState = connectionStateWeak.lock();
-                    if (connectionState == nullptr) {
-                        return;
-                    }
-                    std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
-                    auto& connectionPool = impl_->persistentConnections[serverId];
-                    (void)connectionPool.erase(connectionState);
-                    if (connectionPool.empty()) {
-                        (void)impl_->persistentConnections.erase(serverId);
-                    }
-                };
-                auto timeKeeper = impl_->timeKeeper;
-                connectionState->connection = impl_->transport->Connect(
-                    hostNameOrAddress,
-                    port,
-                    [connectionStateWeak, timeKeeper](const std::vector< uint8_t >& data){
-                        const auto connectionState = connectionStateWeak.lock();
-                        if (connectionState == nullptr) {
-                            return;
-                        }
-                        std::shared_ptr< TransactionImpl > transaction;
-                        {
-                            std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
-                            transaction = connectionState->currentTransaction.lock();
-                        }
-                        if (transaction == nullptr) {
-                            return;
-                        }
-                        if (!transaction->complete) {
-                            transaction->lastReceiveTime = timeKeeper->GetCurrentTime();
-                            transaction->DataReceived(data);
-                        }
-                    },
-                    [connectionStateWeak, brokenDelegate](bool){
-                        const auto connectionState = connectionStateWeak.lock();
-                        if (connectionState == nullptr) {
-                            return;
-                        }
-                        std::shared_ptr< TransactionImpl > transaction;
-                        {
-                            std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
-                            transaction = connectionState->currentTransaction.lock();
-                        }
-                        if (transaction == nullptr) {
-                            return;
-                        }
-                        if (!transaction->complete) {
-                            transaction->ConnectionBroken();
-                        }
-                        brokenDelegate();
-                    }
-                );
-            }
-            connectionState->lastTransactionTime = impl_->timeKeeper->GetCurrentTime();
+        const auto now = impl_->timeKeeper->GetCurrentTime();
+        auto connectionState = impl_->persistentConnections->AttachTransaction(
+            serverId,
+            transaction,
+            now
+        );
+        if (connectionState == nullptr) {
+            connectionState = impl_->NewConnection(
+                transaction,
+                serverId,
+                hostNameOrAddress,
+                port
+            );
         }
-        {
-            std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
-            connectionState->currentTransaction = transaction;
+        if (persistConnection) {
+            impl_->persistentConnections->AddConnection(serverId, connectionState);
+        } else {
+            impl_->persistentConnections->DropConnection(serverId, connectionState);
         }
         transaction->connectionState = connectionState;
         if (connectionState->connection == nullptr) {
@@ -951,19 +1129,7 @@ namespace Http {
         }
         const auto requestEncoding = request.Generate();
         connectionState->connection->SendData({requestEncoding.begin(), requestEncoding.end()});
-        {
-            std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
-            if (persistConnection) {
-                (void)impl_->persistentConnections[serverId].insert(connectionState);
-            } else {
-                auto& connectionPool = impl_->persistentConnections[serverId];
-                (void)connectionPool.erase(connectionState);
-                if (connectionPool.empty()) {
-                    (void)impl_->persistentConnections.erase(serverId);
-                }
-            }
-            impl_->activeTransactions[impl_->nextTransactionId++] = transaction;
-        }
+        impl_->AddTransaction(transaction);
         return transaction;
     }
 
