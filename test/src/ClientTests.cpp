@@ -1545,3 +1545,61 @@ TEST_F(ClientTests, PersistentConnectionReleasedAfterInactivityPeriod) {
         );
     }
 }
+
+TEST_F(ClientTests, PendingTransactionWorksEvenWhenClientReleased) {
+    // Set up a client that we can release to destroy when we want.
+    // We can't use the client in the fixture because it's not destroyed
+    // until after the test is completed.
+    auto client = std::unique_ptr< Http::Client >(new Http::Client);
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client->Mobilize(deps);
+
+    // Have the client make a simple request with a non-persistent connection.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://PePe@www.example.com:1234/foo?abc#def");
+    const auto transaction = client->Request(outgoingRequest, false);
+
+    // Drop the client reference.  Since we still have an outstanding
+    // transaction, the client shouldn't actually be destroyed yet.
+    client.reset();
+
+    // Continue the transaction, making sure the request is received.
+    (void)transport->AwaitConnections(1);
+    const auto& connection = transport->connections[0];
+    (void)connection->AwaitRequests(1);
+    const auto& incomingRequest = connection->requests[0];
+    EXPECT_EQ("GET", incomingRequest.method);
+    EXPECT_TRUE(incomingRequest.target.IsRelativeReference());
+    EXPECT_TRUE(incomingRequest.target.GetHost().empty());
+    EXPECT_FALSE(incomingRequest.target.HasPort());
+    EXPECT_TRUE(incomingRequest.target.GetUserInfo().empty());
+    EXPECT_EQ((std::vector< std::string >{"", "foo"}), incomingRequest.target.GetPath());
+    EXPECT_EQ("abc", incomingRequest.target.GetQuery());
+    EXPECT_EQ("def", incomingRequest.target.GetFragment());
+    EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
+
+    // Provide a response back to the client, in one piece.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "8");
+    response.body = "PogChamp";
+    const auto& responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::Completed, transaction->state);
+    EXPECT_EQ(200, transaction->response.statusCode);
+    EXPECT_EQ("OK", transaction->response.reasonPhrase);
+    EXPECT_EQ("Bar", transaction->response.headers.GetHeaderValue("Foo"));
+    EXPECT_EQ("text/plain", transaction->response.headers.GetHeaderValue("Content-Type"));
+    EXPECT_EQ("8", transaction->response.headers.GetHeaderValue("Content-Length"));
+    EXPECT_EQ("PogChamp", transaction->response.body);
+}
