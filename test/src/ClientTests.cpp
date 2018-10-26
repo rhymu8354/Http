@@ -1546,7 +1546,7 @@ TEST_F(ClientTests, PersistentConnectionReleasedAfterInactivityPeriod) {
     }
 }
 
-TEST_F(ClientTests, PendingTransactionWorksEvenWhenClientReleased) {
+TEST_F(ClientTests, PendingTransactionResponseEvenWhenClientReleased) {
     // Set up a client that we can release to destroy when we want.
     // We can't use the client in the fixture because it's not destroyed
     // until after the test is completed.
@@ -1602,4 +1602,50 @@ TEST_F(ClientTests, PendingTransactionWorksEvenWhenClientReleased) {
     EXPECT_EQ("text/plain", transaction->response.headers.GetHeaderValue("Content-Type"));
     EXPECT_EQ("8", transaction->response.headers.GetHeaderValue("Content-Length"));
     EXPECT_EQ("PogChamp", transaction->response.body);
+}
+
+TEST_F(ClientTests, PendingTransactionDoesNotTimeOutWhenClientReleased) {
+    // Set up a client that we can release to destroy when we want.
+    // We can't use the client in the fixture because it's not destroyed
+    // until after the test is completed.
+    auto client = std::unique_ptr< Http::Client >(new Http::Client);
+    const auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    deps.requestTimeoutSeconds = 1.0;
+    client->Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://PePe@www.example.com:1234/foo?abc#def");
+    const auto transaction = client->Request(outgoingRequest);
+
+    // Drop the client reference.  Since we still have an outstanding
+    // transaction, the client shouldn't actually be destroyed yet.
+    client.reset();
+
+    // Continue the transaction, making sure the request is received.
+    (void)transport->AwaitConnections(1);
+    const auto& connection = transport->connections[0];
+    (void)connection->AwaitRequests(1);
+    const auto& incomingRequest = connection->requests[0];
+    EXPECT_EQ("GET", incomingRequest.method);
+    EXPECT_TRUE(incomingRequest.target.IsRelativeReference());
+    EXPECT_TRUE(incomingRequest.target.GetHost().empty());
+    EXPECT_FALSE(incomingRequest.target.HasPort());
+    EXPECT_TRUE(incomingRequest.target.GetUserInfo().empty());
+    EXPECT_EQ((std::vector< std::string >{"", "foo"}), incomingRequest.target.GetPath());
+    EXPECT_EQ("abc", incomingRequest.target.GetQuery());
+    EXPECT_EQ("def", incomingRequest.target.GetFragment());
+    EXPECT_EQ("www.example.com", incomingRequest.headers.GetHeaderValue("Host"));
+
+    // Allow enough time to pass such that the request will time out.
+    timeKeeper->currentTime = 1.5;
+
+    // Don't expect the transaction to time out.
+    EXPECT_FALSE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_NE(Http::Client::Transaction::State::Timeout, transaction->state);
 }
