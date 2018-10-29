@@ -1649,3 +1649,140 @@ TEST_F(ClientTests, PendingTransactionDoesNotTimeOutWhenClientReleased) {
     EXPECT_FALSE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
     EXPECT_NE(Http::Client::Transaction::State::Timeout, transaction->state);
 }
+
+TEST_F(ClientTests, UpgradeConnectionTakenOverByUser) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.SetPath({""});
+    std::shared_ptr< Http::Connection > upgradedConnection;
+    std::string dataReceivedAfterUpgrading;
+    const auto upgradeDelegate = [
+        &upgradedConnection,
+        &dataReceivedAfterUpgrading
+    ](
+        const Http::Response& response,
+        std::shared_ptr< Http::Connection > connection,
+        const std::string& trailer
+    ){
+        upgradedConnection = connection;
+        dataReceivedAfterUpgrading = trailer;
+        upgradedConnection->SetDataReceivedDelegate(
+            [&dataReceivedAfterUpgrading](std::vector< uint8_t > data){
+                dataReceivedAfterUpgrading += std::string(
+                    data.begin(),
+                    data.end()
+                );
+            }
+        );
+        upgradedConnection->SetBrokenDelegate(
+            [](bool){}
+        );
+    };
+    auto transaction = client.Request(
+        outgoingRequest,
+        true,
+        upgradeDelegate
+    );
+    (void)transport->AwaitConnections(1);
+    const auto& connection = transport->connections[0];
+    (void)connection->AwaitRequests(1);
+    const auto& incomingRequest = connection->requests[0];
+
+    // Provide a 101 response back to the client, with some data after
+    // the response that should be given to the user when the connection
+    // is upgraded.
+    //
+    // NOTE: Be careful about the data received delegate!  In upgrading
+    // the connection, the delegate can be replaced.  So don't call it
+    // directly through the connection, but make a copy and call it
+    // through the copy.
+    Http::Response response;
+    response.statusCode = 101;
+    response.reasonPhrase = "Switching Protocols";
+    const auto& responseEncoding = response.Generate() + "Hello, World!\r\n";
+    auto dataReceivedDelegate = connection->dataReceivedDelegate;
+    dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+    dataReceivedDelegate = nullptr;
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Response::State::Complete, transaction->response.state);
+    EXPECT_EQ(101, transaction->response.statusCode);
+    EXPECT_EQ("Switching Protocols", transaction->response.reasonPhrase);
+    transaction = nullptr;
+
+    // Expect that the connection was upgraded, and the extra data that
+    // was sent trailing the response is sent to the upgraded connection.
+    EXPECT_EQ(connection, upgradedConnection);
+    EXPECT_EQ("Hello, World!\r\n", dataReceivedAfterUpgrading);
+
+    // Send some more data to the client.  Expect it to come directly
+    // to the delegate registered by the upgrade delegate.
+    dataReceivedAfterUpgrading.clear();
+    const std::string moreData = "This is some more data.\r\n";
+    connection->dataReceivedDelegate({moreData.begin(), moreData.end()});
+    EXPECT_EQ(moreData, dataReceivedAfterUpgrading);
+
+    // Release the upgraded connection.  That should be the last
+    // reference to the connection, so expect it to have been destroyed.
+    bool connectionDestroyed = false;
+    connection->onDestruction = [&connectionDestroyed]{ connectionDestroyed = true; };
+    transport->connections.clear();
+    upgradedConnection = nullptr;
+    ASSERT_TRUE(connectionDestroyed);
+}
+
+TEST_F(ClientTests, UpgradeConnectionDroppedBecauseNoUpgradeDelegate) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request, but do not provide
+    // the client with an upgrade delegate.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.SetPath({""});
+    auto transaction = client.Request(
+        outgoingRequest,
+        true
+    );
+    (void)transport->AwaitConnections(1);
+    const auto& connection = transport->connections[0];
+    (void)connection->AwaitRequests(1);
+    const auto& incomingRequest = connection->requests[0];
+
+    // Set up the connection to set a flag when it's destroyed.
+    bool connectionDestroyed = false;
+    connection->onDestruction = [&connectionDestroyed]{ connectionDestroyed = true; };
+
+    // Provide a 101 response back to the client.
+    Http::Response response;
+    response.statusCode = 101;
+    response.reasonPhrase = "Switching Protocols";
+    const auto& responseEncoding = response.Generate() + "Hello, World!\r\n";
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Response::State::Complete, transaction->response.state);
+    EXPECT_EQ(101, transaction->response.statusCode);
+    EXPECT_EQ("Switching Protocols", transaction->response.reasonPhrase);
+    transaction = nullptr;
+
+    // Release the connection from the server side.  Then expect that since the
+    // user didn't provide an upgrade delegate, the connection has been
+    // released by all parties and is now destroyed.
+    transport->connections.clear();
+    ASSERT_TRUE(connectionDestroyed);
+}

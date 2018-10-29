@@ -10,11 +10,13 @@
  */
 
 #include "ClientTransport.hpp"
+#include "Connection.hpp"
 #include "Request.hpp"
 #include "Response.hpp"
 #include "TimeKeeper.hpp"
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <MessageHeaders/MessageHeaders.hpp>
 #include <ostream>
@@ -160,6 +162,36 @@ namespace Http {
             ) = 0;
         };
 
+        /**
+         * This is the type of function which the user can provide for the
+         * client to call if the server upgrades the connection in response
+         * to a request.
+         *
+         * @param[in] response
+         *     This is the response received back from the server which
+         *     indicates that the connection is upgraded.
+         *
+         * @param[in] connection
+         *     This is the connection upgraded by the server.  The user should
+         *     retain a reference to this conneciton and call
+         *     SetDataReceivedDelegate and SetBrokenDelegate on this
+         *     connection before returning, in order to receive subsequent
+         *     callbacks when more data is received or the connection is
+         *     broken after the connection is upgraded.
+         *
+         * @param[in] trailer
+         *     This holds any data that has already been received by the client
+         *     from the connection, but that came after the upgrade response.
+         *     This should be treated according to the upgraded protocol.
+         */
+        typedef std::function<
+            void(
+                const Http::Response& response,
+                std::shared_ptr< Http::Connection > connection,
+                const std::string& trailer
+            )
+        > UpgradeDelegate;
+
         // Lifecycle management
     public:
         ~Client() noexcept;
@@ -210,6 +242,17 @@ namespace Http {
          * This method asynchronously posts the given request for a resource
          * on the Internet.
          *
+         * @note
+         *     If the server response indicates that the connection protocol
+         *     is being upgraded, and an upgrade delegate is given, the
+         *     connection is handed to the upgrade delegate, and the
+         *     persistConnection flag has no effect; the connection is released
+         *     by the client and neither closed nor reused in subsequent
+         *     requests.  The user may either await the completion of the
+         *     transaction to obtain the response, obtain the response in
+         *     the upgrade delegate (where it's passed as a parameter),
+         *     or both.
+         *
          * @param[in] request
          *     This is the request to make.  The server's address
          *     is obtained from the request's target URI.
@@ -219,12 +262,17 @@ namespace Http {
          *     communicate with the server should be kept open after the
          *     request, possibly to be reused in subsequent requests.
          *
+         * @param[in] upgradeDelegate
+         *     This is an optional function to call if the connection protocol
+         *     is upgraded by the server.
+         *
          * @return
          *     An object representing the resource request is returned.
          */
         std::shared_ptr< Transaction > Request(
             Http::Request request,
-            bool persistConnection = true
+            bool persistConnection = true,
+            UpgradeDelegate upgradeDelegate = nullptr
         );
 
         /**

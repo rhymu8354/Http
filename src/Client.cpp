@@ -441,6 +441,13 @@ namespace {
         std::shared_ptr< ClientConnectionState > connectionState;
 
         /**
+         * This is the connection upgrade delegate provided by the user,
+         * to be called if the server upgrades the connection in the
+         * response to the request.
+         */
+        Http::Client::UpgradeDelegate upgradeDelegate;
+
+        /**
          * This flag indicates whether or not the connection used to
          * communicate with the server should be kept open after the
          * request, possibly to be reused in subsequent requests.
@@ -478,11 +485,38 @@ namespace {
          * @param[in] endState
          *     This is the state to which to transition the transaction
          *     if this call causes it to be completed.
+         *
+         * @param[in] now
+         *     This is the current time.
+         *
+         * @return
+         *     An indication of whether or not the connection should be
+         *     dropped by the client is returned.
          */
-        void Complete(Transaction::State endState) {
-            std::lock_guard< decltype(mutex) > lock(mutex);
+        bool Complete(
+            Transaction::State endState,
+            double now
+        ) {
+            std::unique_lock< decltype(mutex) > lock(mutex);
             if (complete) {
-                return;
+                return false;
+            }
+            bool dropConnection = false;
+            if (
+                (endState == State::Completed)
+                && (response.statusCode == 101)
+            ) {
+                dropConnection = true;
+                if (upgradeDelegate != nullptr) {
+                    lock.unlock();
+                    dropConnection = true;
+                    upgradeDelegate(
+                        response,
+                        connectionState->connection,
+                        reassemblyBuffer
+                    );
+                    lock.lock();
+                }
             }
             complete = true;
             state = endState;
@@ -495,11 +529,10 @@ namespace {
                     connectionState->connection->Break(false);
                 }
                 connectionState->currentTransaction.reset();
-                // TODO: figure out how to update last transaction time;
-                // we don't have the timekeeper here.
-                // connectionState->lastTransactionTime = now;
+                connectionState->lastTransactionTime = now;
             }
             stateChange.notify_all();
+            return dropConnection;
         }
 
         /**
@@ -507,12 +540,23 @@ namespace {
          *
          * @param[in] data
          *     This is a copy of the data that was received from the server.
+         *
+         * @param[in] now
+         *     This is the current time.
+         *
+         * @return
+         *     An indication of whether or not the connection should be
+         *     dropped by the client is returned.
          */
-        void DataReceived(const std::vector< uint8_t >& data) {
-            std::lock_guard< decltype(mutex) > lock(mutex);
+        bool DataReceived(
+            const std::vector< uint8_t >& data,
+            double now
+        ) {
+            std::unique_lock< decltype(mutex) > lock(mutex);
             if (complete) {
-                return;
+                return false;
             }
+            lastReceiveTime = now;
             reassemblyBuffer += std::string(data.begin(), data.end());
             const auto charactersAccepted = ParseResponseImpl(
                 response,
@@ -524,15 +568,20 @@ namespace {
                 reassemblyBuffer.begin(),
                 reassemblyBuffer.begin() + charactersAccepted
             );
+            lock.unlock();
             if (response.IsCompleteOrError()) {
-                Complete(State::Completed);
+                return Complete(State::Completed, now);
             }
+            return false;
         }
 
         /**
          * This method is called if the connection to the server is broken.
+         *
+         * @param[in] now
+         *     This is the current time.
          */
-        void ConnectionBroken() {
+        void ConnectionBroken(double now) {
             std::lock_guard< decltype(mutex) > lock(mutex);
             if (complete) {
                 return;
@@ -547,7 +596,7 @@ namespace {
             } else {
                 endState = State::Broken;
             }
-            Complete(endState);
+            (void)Complete(endState, now);
         }
 
         // Http::Client::Transaction
@@ -906,7 +955,12 @@ namespace Http {
             connectionState->connection = transport->Connect(
                 hostNameOrAddress,
                 port,
-                [connectionStateWeak, timeKeeperRef](const std::vector< uint8_t >& data){
+                [
+                    connectionStateWeak,
+                    serverId,
+                    persistentConnectionsWeak,
+                    timeKeeperRef
+                ](const std::vector< uint8_t >& data){
                     const auto connectionState = connectionStateWeak.lock();
                     if (connectionState == nullptr) {
                         return;
@@ -919,12 +973,24 @@ namespace Http {
                     if (transaction == nullptr) {
                         return;
                     }
-                    if (!transaction->complete) {
-                        transaction->lastReceiveTime = timeKeeperRef->GetCurrentTime();
-                        transaction->DataReceived(data);
+                    if (
+                        transaction->DataReceived(
+                            data,
+                            timeKeeperRef->GetCurrentTime()
+                        )
+                    ) {
+                        const auto persistentConnections = persistentConnectionsWeak.lock();
+                        if (persistentConnections != nullptr) {
+                            persistentConnections->DropConnection(serverId, connectionState);
+                        }
                     }
                 },
-                [connectionStateWeak, serverId, persistentConnectionsWeak](bool){
+                [
+                    connectionStateWeak,
+                    serverId,
+                    persistentConnectionsWeak,
+                    timeKeeperRef
+                ](bool){
                     const auto connectionState = connectionStateWeak.lock();
                     if (connectionState == nullptr) {
                         return;
@@ -938,9 +1004,7 @@ namespace Http {
                     if (transaction == nullptr) {
                         return;
                     }
-                    if (!transaction->complete) {
-                        transaction->ConnectionBroken();
-                    }
+                    transaction->ConnectionBroken(timeKeeperRef->GetCurrentTime());
                     const auto persistentConnections = persistentConnectionsWeak.lock();
                     if (persistentConnections != nullptr) {
                         persistentConnections->DropConnection(serverId, connectionState);
@@ -997,7 +1061,10 @@ namespace Http {
                     if (transaction->complete) {
                         isCompleted = true;
                     } else if (transaction->lastReceiveTime <= cutoff) {
-                        transaction->Complete(Transaction::State::Timeout);
+                        (void)transaction->Complete(
+                            Transaction::State::Timeout,
+                            transaction->lastReceiveTime
+                        );
                         isCompleted = true;
                     }
                 }
@@ -1074,9 +1141,14 @@ namespace Http {
 
     auto Client::Request(
         Http::Request request,
-        bool persistConnection
+        bool persistConnection,
+        UpgradeDelegate upgradeDelegate
     ) -> std::shared_ptr< Transaction > {
         const auto transaction = std::make_shared< TransactionImpl >();
+        transaction->upgradeDelegate = upgradeDelegate;
+        if (upgradeDelegate != nullptr) {
+            persistConnection = true;
+        }
         transaction->lastReceiveTime = impl_->timeKeeper->GetCurrentTime();
         const auto& hostNameOrAddress = request.target.GetHost();
         auto port = DEFAULT_HTTP_PORT_NUMBER;
@@ -1109,7 +1181,10 @@ namespace Http {
         }
         transaction->connectionState = connectionState;
         if (connectionState->connection == nullptr) {
-            transaction->Complete(Transaction::State::UnableToConnect);
+            (void)transaction->Complete(
+                Transaction::State::UnableToConnect,
+                now
+            );
             return transaction;
         }
         transaction->persistConnection = persistConnection;
