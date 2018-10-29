@@ -1212,6 +1212,7 @@ namespace Http {
                 }
                 IssueResponse(connectionState, response, false);
                 if (response.statusCode == 101) {
+                    connectionState->acceptingRequests = false;
                     connectionState->connection = nullptr;
                     (void)connectionsToDrop.insert(connectionState);
                     reaperWakeCondition.notify_all();

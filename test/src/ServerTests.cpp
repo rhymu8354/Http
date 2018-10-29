@@ -1900,6 +1900,93 @@ TEST_F(ServerTests, UpgradedConnectionsShouldNotBeTimedOutByServer) {
     ASSERT_FALSE(connection->AwaitResponse());
 }
 
+TEST_F(ServerTests, UpgradedConnectionShouldNoLongerParseRequests) {
+    // Set up the server.
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
+    (void)server.Mobilize(deps);
+
+    // Register resource handler that will upgrade the connection
+    // of any request sent to it.
+    size_t requestsReceived = 0;
+    std::shared_ptr< Http::Connection > upgradedConnection;
+    std::string dataReceivedAfterUpgrading;
+    const auto resourceDelegate = [
+        &upgradedConnection,
+        &requestsReceived,
+        &dataReceivedAfterUpgrading
+    ](
+        const Http::Request& request,
+        std::shared_ptr< Http::Connection > connection,
+        const std::string& trailer
+    ){
+        ++requestsReceived;
+        Http::Response response;
+        response.statusCode = 101;
+        response.reasonPhrase = "Switching Protocols";
+        response.headers.SetHeader("Connection", "upgrade");
+        upgradedConnection = connection;
+        dataReceivedAfterUpgrading = trailer;
+        upgradedConnection->SetDataReceivedDelegate(
+            [&dataReceivedAfterUpgrading](std::vector< uint8_t > data){
+                dataReceivedAfterUpgrading += std::string(
+                    data.begin(),
+                    data.end()
+                );
+            }
+        );
+        upgradedConnection->SetBrokenDelegate(
+            [](bool){}
+        );
+        return response;
+    };
+    const auto unregistrationDelegate = server.RegisterResource({ "foo" }, resourceDelegate);
+
+    // Connect to server.
+    auto connection = std::make_shared< MockConnection >();
+    bool connectionDestroyed = false;
+    connection->onDestruction = [&connectionDestroyed]{ connectionDestroyed = true; };
+    transport->connectionDelegate(connection);
+
+    // Send a request that should trigger an upgrade, but make the data after
+    // the request look like another request.
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    Http::Client client;
+    const auto response = client.ParseResponse(
+        std::string(
+            connection->dataReceived.begin(),
+            connection->dataReceived.end()
+        )
+    );
+    connection->dataReceived.clear();
+    EXPECT_EQ(1, requestsReceived);
+    EXPECT_EQ(101, response->statusCode);
+    ASSERT_EQ(connection, upgradedConnection);
+    EXPECT_EQ(
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+        "\r\n",
+        dataReceivedAfterUpgrading
+    );
+    dataReceivedAfterUpgrading.clear();
+}
+
 TEST_F(ServerTests, GoodRequestDiagnosticMessage) {
     // Set up server.
     auto transport = std::make_shared< MockTransport >();
