@@ -1259,21 +1259,21 @@ namespace Http {
             std::weak_ptr< ConnectionState > connectionStateWeak(connectionState);
             connection->SetDataReceivedDelegate(
                 [this, connectionStateWeak](const std::vector< uint8_t >& data){
-                    std::lock_guard< decltype(mutex) > lock(mutex);
                     const auto connectionState = connectionStateWeak.lock();
                     if (connectionState == nullptr) {
                         return;
                     }
+                    std::lock_guard< decltype(mutex) > lock(mutex);
                     DataReceived(connectionState, data);
                 }
             );
             connection->SetBrokenDelegate(
                 [this, connectionStateWeak](bool){
-                    std::lock_guard< decltype(mutex) > lock(mutex);
                     const auto connectionState = connectionStateWeak.lock();
                     if (connectionState == nullptr) {
                         return;
                     }
+                    std::lock_guard< decltype(mutex) > lock(mutex);
                     if (connectionState->closed) {
                         OnConnectionBroken(
                             connectionState,
