@@ -29,12 +29,6 @@ namespace {
         // Properties
 
         /**
-         * This indicates whether or not the mock connection is
-         * currently invoking one of the server's delegates.
-         */
-        bool callingDelegate = false;
-
-        /**
          * This is a function to be called when the mock connection
          * is destroyed.
          */
@@ -82,10 +76,6 @@ namespace {
         // Lifecycle management
         ~MockConnection() noexcept {
             std::lock_guard< decltype(mutex) > lock(mutex);
-            if (callingDelegate) {
-                volatile int* null = (int*)0;
-                *null = 42; // force a crash (use in a death test)
-            }
             if (onDestruction != nullptr) {
                 onDestruction();
             }
@@ -869,25 +859,6 @@ TEST_F(ServerTests, ClientConnectionBroken) {
         diagnosticMessages
     );
     diagnosticMessages.clear();
-}
-
-TEST_F(ServerTests, ClientShouldNotBeReleasedDuringBreakDelegateCall) {
-    auto transport = std::make_shared< MockTransport >();
-    Http::Server::MobilizationDependencies deps;
-    deps.transport = transport;
-    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
-    server.SetConfigurationItem("Port", "1234");
-    (void)server.Mobilize(deps);
-    auto connection = std::make_shared< MockConnection >();
-    transport->connectionDelegate(connection);
-    auto connectionRaw = connection.get();
-    connection = nullptr;
-    {
-        std::lock_guard< decltype(connectionRaw->mutex) > lock(connectionRaw->mutex);
-        connectionRaw->callingDelegate = true;
-        connectionRaw->brokenDelegate(false);
-        connectionRaw->callingDelegate = false;
-    }
 }
 
 TEST_F(ServerTests, ParseInvalidRequestLineTooLong) {
