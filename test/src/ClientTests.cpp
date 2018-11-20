@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <SystemAbstractions/StringExtensions.hpp>
+#include <thread>
 
 namespace {
 
@@ -1187,7 +1188,10 @@ TEST_F(ClientTests, ReceiveWholeBodyForResponseWithoutContentLengthOrTransferCod
     EXPECT_FALSE(connectionDestroyed);
 
     // Release the transaction, and verify the connection is finally destroyed.
+    // Note that the client may hold onto a completed transaction for up to 50ms
+    // since a worker thread does the releasing, so we need to wait here at a bit.
     transaction = nullptr;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     EXPECT_TRUE(connectionDestroyed);
 }
 
@@ -1783,6 +1787,9 @@ TEST_F(ClientTests, UpgradeConnectionDroppedBecauseNoUpgradeDelegate) {
     // Release the connection from the server side.  Then expect that since the
     // user didn't provide an upgrade delegate, the connection has been
     // released by all parties and is now destroyed.
+    // Note that the client may hold onto a completed transaction for up to 50ms
+    // since a worker thread does the releasing, so we need to wait here at a bit.
     transport->connections.clear();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     ASSERT_TRUE(connectionDestroyed);
 }
