@@ -36,6 +36,10 @@ namespace Http {
          *     methods, since the delegates are specified directly
          *     in this method.
          *
+         * @param[in] scheme
+         *     This is the scheme indicated in the URI of the target
+         *     to which to establish a connection.
+         *
          * @param[in] hostNameOrAddress
          *     This is the host name or IP address of the
          *     server to which to connect.
@@ -58,6 +62,7 @@ namespace Http {
          *     This is returned if a connection could not be established.
          */
         virtual std::shared_ptr< Connection > Connect(
+            const std::string& scheme,
             const std::string& hostNameOrAddress,
             uint16_t port,
             Http::Connection::DataReceivedDelegate dataReceivedDelegate,

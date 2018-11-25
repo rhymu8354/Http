@@ -43,6 +43,12 @@ namespace {
         std::condition_variable_any waitCondition;
 
         /**
+         * This is the scheme indicated in the URI of the target of the
+         * connection.
+         */
+        std::string scheme;
+
+        /**
          * This is the host name or IP address of the mock server.
          */
         std::string hostNameOrIpAddress;
@@ -267,6 +273,7 @@ namespace {
         // Http::ClientTransport
 
         virtual std::shared_ptr< Http::Connection > Connect(
+            const std::string& scheme,
             const std::string& hostNameOrAddress,
             uint16_t port,
             Http::Connection::DataReceivedDelegate dataReceivedDelegate,
@@ -275,6 +282,7 @@ namespace {
             if (connectionsAllowed > 0) {
                 --connectionsAllowed;
                 const auto connection = std::make_shared< MockConnection >();
+                connection->scheme = scheme;
                 connection->hostNameOrIpAddress = hostNameOrAddress;
                 connection->port = port;
                 connection->SetDataReceivedDelegate(dataReceivedDelegate);
@@ -625,6 +633,7 @@ TEST_F(ClientTests, SimpleGetRequestOnePieceResponse) {
     EXPECT_EQ(Http::Client::Transaction::State::InProgress, transaction->state);
     ASSERT_TRUE(transport->AwaitConnections(1));
     const auto& connection = transport->connections[0];
+    EXPECT_EQ("http", connection->scheme);
     EXPECT_EQ("www.example.com", connection->hostNameOrIpAddress);
     EXPECT_EQ(1234, connection->port);
     ASSERT_TRUE(connection->AwaitRequests(1));

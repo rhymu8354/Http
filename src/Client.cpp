@@ -924,6 +924,10 @@ namespace Http {
          * @param[in] transaction
          *     This is the transaction which needs a connection to the server.
          *
+         * @param[in] scheme
+         *     This is the scheme indicated in the URI of the target
+         *     to which to establish a connection.
+         *
          * @param[in] serverId
          *     This is a unique identifier of the server for which a connection
          *     is needed, in the form "host:port".
@@ -943,6 +947,7 @@ namespace Http {
          */
         std::shared_ptr< ClientConnectionState > NewConnection(
             std::shared_ptr< TransactionImpl > transaction,
+            const std::string& scheme,
             const std::string& serverId,
             const std::string& hostNameOrAddress,
             uint16_t port
@@ -953,6 +958,7 @@ namespace Http {
             std::weak_ptr< ClientConnectionPool > persistentConnectionsWeak(persistentConnections);
             auto timeKeeperRef = timeKeeper;
             connectionState->connection = transport->Connect(
+                scheme,
                 hostNameOrAddress,
                 port,
                 [
@@ -1169,6 +1175,7 @@ namespace Http {
         if (connectionState == nullptr) {
             connectionState = impl_->NewConnection(
                 transaction,
+                request.target.GetScheme(),
                 serverId,
                 hostNameOrAddress,
                 port
