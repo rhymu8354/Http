@@ -1802,3 +1802,29 @@ TEST_F(ClientTests, UpgradeConnectionDroppedBecauseNoUpgradeDelegate) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     ASSERT_TRUE(connectionDestroyed);
 }
+
+TEST_F(ClientTests, RequestShouldNotPersistConnectionIfItFailsToConnect) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    transport->connectionsAllowed = 0;
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request that fails to connect.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://www.example.com:1234/foo");
+    auto transaction = client.Request(outgoingRequest);
+    (void)transaction->AwaitCompletion(std::chrono::milliseconds(100));
+    transaction = nullptr;
+
+    // Make a second request that should go through, using a new connection
+    // created from the transport layer.
+    transport->connectionsAllowed = 1;
+    transaction = client.Request(outgoingRequest);
+
+    // Expect that a new connection is created from the transport layer.
+    ASSERT_TRUE(transport->AwaitConnections(1));
+}

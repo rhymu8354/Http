@@ -520,11 +520,14 @@ namespace {
             }
             complete = true;
             state = endState;
-            if (connectionState->connection != nullptr) {
+            {
                 std::lock_guard< decltype(connectionState->mutex) > lock(connectionState->mutex);
                 if (
-                    !persistConnection
-                    || (state == State::Timeout)
+                    (connectionState->connection != nullptr)
+                    && (
+                        !persistConnection
+                        || (state == State::Timeout)
+                    )
                 ) {
                     connectionState->connection->Break(false);
                 }
@@ -1181,7 +1184,10 @@ namespace Http {
                 port
             );
         }
-        if (persistConnection) {
+        if (
+            (connectionState->connection != nullptr)
+            && persistConnection
+        ) {
             impl_->persistentConnections->AddConnection(serverId, connectionState);
         } else {
             impl_->persistentConnections->DropConnection(serverId, connectionState);
