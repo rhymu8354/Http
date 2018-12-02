@@ -898,7 +898,6 @@ namespace Http {
             if (closeRequested) {
                 connectionState->acceptingRequests = false;
                 connectionState->closed = true;
-                connectionState->connection->Break(true);
                 OnConnectionBroken(
                     connectionState,
                     "closed by server",
