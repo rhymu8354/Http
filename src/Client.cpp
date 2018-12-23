@@ -1129,13 +1129,6 @@ namespace Http {
     {
     }
 
-    SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate Client::SubscribeToDiagnostics(
-        SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
-        size_t minLevel
-    ) {
-        return impl_->diagnosticsSender.SubscribeToDiagnostics(delegate, minLevel);
-    }
-
     void Client::Mobilize(const MobilizationDependencies& deps) {
         if (impl_->mobilized) {
             return;
@@ -1146,6 +1139,39 @@ namespace Http {
         impl_->inactivityInterval = deps.inactivityInterval;
         impl_->mobilized = true;
         impl_->Mobilize();
+    }
+
+    void Client::Demobilize() {
+        impl_->Demobilize();
+        impl_->timeKeeper = nullptr;
+        impl_->transport = nullptr;
+        impl_->mobilized = false;
+    }
+
+    auto Client::ParseResponse(const std::string& rawResponse) -> std::shared_ptr< Response > {
+        size_t messageEnd;
+        return ParseResponse(rawResponse, messageEnd);
+    }
+
+    auto Client::ParseResponse(
+        const std::string& rawResponse,
+        size_t& messageEnd
+    ) -> std::shared_ptr< Response > {
+        const auto response = std::make_shared< Response >();
+        ChunkedBody chunkedBody;
+        messageEnd = ParseResponseImpl(*response, chunkedBody, rawResponse, false);
+        if (response->IsCompleteOrError(false)) {
+            return response;
+        } else {
+            return nullptr;
+        }
+    }
+
+    SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate Client::SubscribeToDiagnostics(
+        SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
+        size_t minLevel
+    ) {
+        return impl_->diagnosticsSender.SubscribeToDiagnostics(delegate, minLevel);
     }
 
     auto Client::Request(
@@ -1219,32 +1245,6 @@ namespace Http {
         connectionState->connection->SendData({requestEncoding.begin(), requestEncoding.end()});
         impl_->AddTransaction(transaction);
         return transaction;
-    }
-
-    void Client::Demobilize() {
-        impl_->Demobilize();
-        impl_->timeKeeper = nullptr;
-        impl_->transport = nullptr;
-        impl_->mobilized = false;
-    }
-
-    auto Client::ParseResponse(const std::string& rawResponse) -> std::shared_ptr< Response > {
-        size_t messageEnd;
-        return ParseResponse(rawResponse, messageEnd);
-    }
-
-    auto Client::ParseResponse(
-        const std::string& rawResponse,
-        size_t& messageEnd
-    ) -> std::shared_ptr< Response > {
-        const auto response = std::make_shared< Response >();
-        ChunkedBody chunkedBody;
-        messageEnd = ParseResponseImpl(*response, chunkedBody, rawResponse, false);
-        if (response->IsCompleteOrError(false)) {
-            return response;
-        } else {
-            return nullptr;
-        }
     }
 
     void PrintTo(
