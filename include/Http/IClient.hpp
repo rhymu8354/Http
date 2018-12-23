@@ -108,6 +108,17 @@ namespace Http {
             virtual bool AwaitCompletion(
                 const std::chrono::milliseconds& relativeTime
             ) = 0;
+
+            /**
+             * Set a delegate to be called once the transaction is completed.
+             *
+             * @param[in] completionDelegate
+             *     This is the delegate to call once the transaction is
+             *     completed.
+             */
+            virtual void SetCompletionDelegate(
+                std::function< void() > completionDelegate
+            ) = 0;
         };
 
         /**

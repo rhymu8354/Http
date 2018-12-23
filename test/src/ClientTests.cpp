@@ -9,6 +9,7 @@
 
 #include <condition_variable>
 #include <functional>
+#include <future>
 #include <gtest/gtest.h>
 #include <Http/Client.hpp>
 #include <Http/Request.hpp>
@@ -661,6 +662,60 @@ TEST_F(ClientTests, SimpleGetRequestOnePieceResponse) {
 
     // Wait for client transaction to complete.
     ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
+    EXPECT_EQ(Http::Client::Transaction::State::Completed, transaction->state);
+    EXPECT_EQ(200, transaction->response.statusCode);
+    EXPECT_EQ("OK", transaction->response.reasonPhrase);
+    EXPECT_EQ("Bar", transaction->response.headers.GetHeaderValue("Foo"));
+    EXPECT_EQ("text/plain", transaction->response.headers.GetHeaderValue("Content-Type"));
+    EXPECT_EQ("8", transaction->response.headers.GetHeaderValue("Content-Length"));
+    EXPECT_EQ("PogChamp", transaction->response.body);
+}
+
+TEST_F(ClientTests, TransactionCompletionDelegate) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a simple request.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "GET";
+    outgoingRequest.target.ParseFromString("http://PePe@www.example.com:1234/foo?abc#def");
+    const auto transaction = client.Request(outgoingRequest);
+    ASSERT_TRUE(transport->AwaitConnections(1));
+    const auto& connection = transport->connections[0];
+
+    // Set up to receive a callback when the transaction is complete.
+    std::promise< void > transactionCompleted;
+    transaction->SetCompletionDelegate(
+        [&transactionCompleted]{
+            transactionCompleted.set_value();
+        }
+    );
+    auto transactionWasCompleted = transactionCompleted.get_future();
+    ASSERT_NE(
+        std::future_status::ready,
+        transactionWasCompleted.wait_for(std::chrono::milliseconds(100))
+    );
+
+    // Provide a response back to the client, in one piece.
+    Http::Response response;
+    response.statusCode = 200;
+    response.reasonPhrase = "OK";
+    response.headers.SetHeader("Foo", "Bar");
+    response.headers.SetHeader("Content-Type", "text/plain");
+    response.headers.SetHeader("Content-Length", "8");
+    response.body = "PogChamp";
+    const auto& responseEncoding = response.Generate();
+    connection->dataReceivedDelegate({responseEncoding.begin(), responseEncoding.end()});
+
+    // Wait for client transaction to complete.
+    ASSERT_EQ(
+        std::future_status::ready,
+        transactionWasCompleted.wait_for(std::chrono::seconds(1))
+    );
     EXPECT_EQ(Http::Client::Transaction::State::Completed, transaction->state);
     EXPECT_EQ(200, transaction->response.statusCode);
     EXPECT_EQ("OK", transaction->response.reasonPhrase);

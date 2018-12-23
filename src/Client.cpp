@@ -475,6 +475,12 @@ namespace {
          */
         std::condition_variable_any stateChange;
 
+        /**
+         * If set, this is a function to call once the transaction is
+         * completed.
+         */
+        std::function< void() > completionDelegate;
+
         // Methods
 
         /**
@@ -535,6 +541,11 @@ namespace {
                 connectionState->lastTransactionTime = now;
             }
             stateChange.notify_all();
+            auto completionDelegateCopy = completionDelegate;
+            lock.unlock();
+            if (completionDelegateCopy != nullptr) {
+                completionDelegateCopy();
+            }
             return dropConnection;
         }
 
@@ -585,7 +596,7 @@ namespace {
          *     This is the current time.
          */
         void ConnectionBroken(double now) {
-            std::lock_guard< decltype(mutex) > lock(mutex);
+            std::unique_lock< decltype(mutex) > lock(mutex);
             if (complete) {
                 return;
             }
@@ -599,6 +610,7 @@ namespace {
             } else {
                 endState = State::Broken;
             }
+            lock.unlock();
             (void)Complete(endState, now);
         }
 
@@ -614,6 +626,14 @@ namespace {
                 [this]{ return complete; }
             );
         };
+
+        virtual void SetCompletionDelegate(
+            std::function< void() > completionDelegate
+        ) override {
+            std::unique_lock< decltype(mutex) > lock(mutex);
+            this->completionDelegate = completionDelegate;
+        }
+
     };
 
     /**
@@ -1066,10 +1086,11 @@ namespace Http {
                 if (transaction == nullptr) {
                     isCompleted = true;
                 } else {
-                    std::lock_guard< decltype(transaction->mutex) > lock(transaction->mutex);
+                    std::unique_lock< decltype(transaction->mutex) > lock(transaction->mutex);
                     if (transaction->complete) {
                         isCompleted = true;
                     } else if (transaction->lastReceiveTime <= cutoff) {
+                        lock.unlock();
                         (void)transaction->Complete(
                             Transaction::State::Timeout,
                             transaction->lastReceiveTime
