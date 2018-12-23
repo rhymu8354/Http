@@ -297,7 +297,7 @@ namespace Http {
          * @retval nullptr
          *     This is returned if the given rawResponse did not parse correctly.
          */
-        std::shared_ptr< Response > ParseResponse(const std::string& rawResponse);
+        static std::shared_ptr< Response > ParseResponse(const std::string& rawResponse);
 
         /**
          * This method parses the given string as a raw HTTP response message.
@@ -320,7 +320,7 @@ namespace Http {
          * @retval nullptr
          *     This is returned if the given rawResponse did not parse correctly.
          */
-        std::shared_ptr< Response > ParseResponse(
+        static std::shared_ptr< Response > ParseResponse(
             const std::string& rawResponse,
             size_t& messageEnd
         );
