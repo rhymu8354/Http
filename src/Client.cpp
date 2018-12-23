@@ -632,6 +632,11 @@ namespace {
         ) override {
             std::unique_lock< decltype(mutex) > lock(mutex);
             this->completionDelegate = completionDelegate;
+            const bool wasComplete = complete;
+            lock.unlock();
+            if (wasComplete) {
+                completionDelegate();
+            }
         }
 
     };
