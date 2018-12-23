@@ -627,6 +627,14 @@ namespace {
             );
         };
 
+        virtual void AwaitCompletion() override {
+            std::unique_lock< decltype(mutex) > lock(mutex);
+            stateChange.wait(
+                lock,
+                [this]{ return complete; }
+            );
+        }
+
         virtual void SetCompletionDelegate(
             std::function< void() > completionDelegate
         ) override {

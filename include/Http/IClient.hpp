@@ -110,6 +110,16 @@ namespace Http {
             ) = 0;
 
             /**
+             * This method can be used to wait for the transaction
+             * to complete.
+             *
+             * @note
+             *     This method will return immediately if the state
+             *     is not State::InProgress.
+             */
+            virtual void AwaitCompletion() = 0;
+
+            /**
              * Set a delegate to be called once the transaction is completed.
              *
              * @param[in] completionDelegate
