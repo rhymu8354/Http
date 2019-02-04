@@ -153,6 +153,20 @@ namespace Http {
          *     is returned.
          */
         virtual std::shared_ptr< TimeKeeper > GetTimeKeeper() = 0;
+
+        /**
+         * Impose a ban on connections from the given peer address.
+         *
+         * Bans are not permanent.  They are lifted after the
+         * "InitialBanPeriod" configurable amount of time in seconds has
+         * elapsed, unless banned repeatedly, in which case the ban period
+         * is doubled for each ban.
+         *
+         * @param[in] peerAddress
+         *     This is the address of the peer whose connections should
+         *     be banned.
+         */
+        virtual void Ban(const std::string& peerAddress) = 0;
     };
 
 }

@@ -156,6 +156,7 @@ namespace Http {
             ResourceDelegate resourceDelegate
         ) override;
         virtual std::shared_ptr< TimeKeeper > GetTimeKeeper() override;
+        virtual void Ban(const std::string& peerAddress) override;
 
         // Private properties
     private:

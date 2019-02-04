@@ -908,8 +908,7 @@ namespace Http {
             ) {
                 closeRequested = true;
                 const auto clientAddress = connectionState->connection->GetPeerAddress();
-                auto& client = clients[clientAddress];
-                BanHammer(client, clientAddress);
+                BanHammer(clientAddress);
             } else {
                 closeRequested = response.headers.HasHeaderToken("Connection", "close");
             }
@@ -927,17 +926,12 @@ namespace Http {
         /**
          * This method bans the given client from the server.
          *
-         * @param[in] client
-         *     This is the dossier of the client to ban.
-         *
          * @param[in] clientAddress
          *     This is the address of the client to ban.
          */
-        void BanHammer(
-            ClientDossier& client,
-            const std::string clientAddress
-        ) {
+        void BanHammer(const std::string clientAddress) {
             const auto now = timeKeeper->GetCurrentTime();
+            auto& client = clients[clientAddress];
             if (client.banned) {
                 client.banPeriod *= 2.0;
                 diagnosticsSender.SendDiagnosticInformationFormatted(
@@ -1103,7 +1097,7 @@ namespace Http {
                         request->target.GenerateString(),
                         connectionState->connection->GetPeerId()
                     );
-                    BanHammer(client, clientAddress);
+                    BanHammer(clientAddress);
                 } else if (
                     (request->state == Request::State::Complete)
                     && request->valid
@@ -1505,4 +1499,8 @@ namespace Http {
         return impl_->timeKeeper;
     }
 
+    void Server::Ban(const std::string& peerAddress) {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        impl_->BanHammer(peerAddress);
+    }
 }

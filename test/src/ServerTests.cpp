@@ -2880,3 +2880,15 @@ TEST_F(ServerTests, BlowingMaxMessageSizeInContentResultsInBan) {
     transport->connectionDelegate(connection);
     EXPECT_TRUE(connection->broken);
 }
+
+TEST_F(ServerTests, ManuallyBanClient) {
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    (void)server.Mobilize(deps);
+    server.Ban("mock-client");
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    EXPECT_TRUE(connection->broken);
+}
