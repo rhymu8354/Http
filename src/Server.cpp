@@ -35,12 +35,12 @@ namespace {
     const std::string CRLF("\r\n");
 
     /**
-     * This is the maximum allowed request body size.
+     * This is the default maximum allowed total message size.
      *
      * Make sure this is never larger than the largest value
      * for the size_t type.
      */
-    constexpr intmax_t MAX_CONTENT_LENGTH = 10000000;
+    constexpr intmax_t DEFAULT_MAX_MESSAGE_SIZE = 10000000;
 
     /**
      * This is the default maximum length allowed for a request header line.
@@ -335,6 +335,11 @@ namespace Http {
          * This holds all configuration items for the server.
          */
         std::map< std::string, std::string > configuration;
+
+        /**
+         * This is the maximum allowed total message size.
+         */
+        size_t maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
         /**
          * This is the maximum number of characters allowed on any header line
@@ -683,6 +688,7 @@ namespace Http {
                 }
                 const auto requestLine = nextRawRequestPart.substr(0, requestLineLength);
                 messageEnd = requestLineEnd + CRLF.length();
+                request.totalBytes = messageEnd;
                 request.state = Request::State::Headers;
                 request.valid = ParseRequestLine(request, requestLine);
             }
@@ -690,12 +696,19 @@ namespace Http {
             // Second, parse the message headers and identify where the body begins.
             if (request.state == Request::State::Headers) {
                 request.headers.SetLineLimit(headerLineLimit);
-                size_t bodyOffset;
+                size_t headerBytesConsumed;
                 const auto headersState = request.headers.ParseRawMessage(
                     nextRawRequestPart.substr(messageEnd),
-                    bodyOffset
+                    headerBytesConsumed
                 );
-                messageEnd += bodyOffset;
+                request.totalBytes += headerBytesConsumed;
+                messageEnd += headerBytesConsumed;
+                if (request.totalBytes > maxMessageSize) {
+                    request.state = Request::State::Error;
+                    request.responseStatusCode = 431;
+                    request.responseReasonPhrase = "Request Header Fields Too Large";
+                    return messageEnd;
+                }
                 switch (headersState) {
                     case MessageHeaders::MessageHeaders::State::Complete: {
                         // Done with parsing headers; next will be body.
@@ -768,7 +781,8 @@ namespace Http {
                         request.state = Request::State::Error;
                         return messageEnd;
                     }
-                    if (contentLengthAsInt > MAX_CONTENT_LENGTH) {
+                    request.totalBytes += contentLengthAsInt;
+                    if (request.totalBytes > maxMessageSize) {
                         request.state = Request::State::Error;
                         request.responseStatusCode = 413;
                         request.responseReasonPhrase = "Payload Too Large";
@@ -1306,6 +1320,7 @@ namespace Http {
         : impl_(new Impl)
     {
         impl_->server = this;
+        impl_->configuration["MaxMessageSize"] = SystemAbstractions::sprintf("%zu", impl_->maxMessageSize);
         impl_->configuration["HeaderLineLimit"] = SystemAbstractions::sprintf("%zu", impl_->headerLineLimit);
         impl_->configuration["Port"] = SystemAbstractions::sprintf("%" PRIu16, impl_->port);
         impl_->configuration["RequestTimeout"] = FormatDoubleAsDistinctlyNotInteger(impl_->requestTimeout);
@@ -1404,7 +1419,9 @@ namespace Http {
         const std::string& value
     ) {
         impl_->configuration[key] = value;
-        if (key == "HeaderLineLimit") {
+        if (key == "MaxMessageSize") {
+            impl_->ParseConfigurationItem(impl_->maxMessageSize, "%zu", "%zu", "Maximum message size", value);
+        } else if (key == "HeaderLineLimit") {
             impl_->ParseConfigurationItem(impl_->headerLineLimit, "%zu", "%zu", "Header line limit", value);
         } else if (key == "Port") {
             impl_->ParseConfigurationItem(impl_->port, "%" SCNu16, "%" PRIu16, "Port number", value);

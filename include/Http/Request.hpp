@@ -74,6 +74,12 @@ namespace Http {
         bool valid = true;
 
         /**
+         * This is meant to be used by a receiver to track the number of bytes
+         * that were received in order to build this request.
+         */
+        size_t totalBytes = 0;
+
+        /**
          * This indicates the request method to be performed on the
          * target resource.
          */
