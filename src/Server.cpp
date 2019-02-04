@@ -61,21 +61,21 @@ namespace {
 
     /**
      * This is the default maximum number of seconds to allow to elapse
-     * beteen receiving one byte of a client request and
+     * between receiving one byte of a client request and
      * receiving the next byte, before timing out.
      */
     constexpr double DEFAULT_INACTIVITY_TIMEOUT_SECONDS = 1.0;
 
     /**
      * This is the default maximum number of seconds to allow to elapse
-     * beteen receiving the first byte of a client request and
+     * between receiving the first byte of a client request and
      * receiving the last byte of the request, before timing out.
      */
     constexpr double DEFAULT_REQUEST_TIMEOUT_SECONDS = 60.0;
 
     /**
      * This is the default maximum number of seconds to allow to elapse
-     * beteen the end of a request, or the beginning of a connection,
+     * between the end of a request, or the beginning of a connection,
      * and receiving the first byte of a new client request,
      * before timing out.
      */
@@ -356,7 +356,7 @@ namespace Http {
 
         /**
          * This is the default maximum number of seconds to allow to elapse
-         * beteen the end of a request, or the beginning of a connection,
+         * between the end of a request, or the beginning of a connection,
          * and receiving the first byte of a new client request,
          * before timing out.
          */
@@ -364,14 +364,14 @@ namespace Http {
 
         /**
          * This is the maximum number of seconds to allow to elapse
-         * beteen receiving one byte of a client request and
+         * between receiving one byte of a client request and
          * receiving the next byte, before timing out.
          */
         double inactivityTimeout = DEFAULT_INACTIVITY_TIMEOUT_SECONDS;
 
         /**
          * This is the maximum number of seconds to allow to elapse
-         * beteen receiving the first byte of a client request and
+         * between receiving the first byte of a client request and
          * receiving the last byte of the request, before timing out.
          */
         double requestTimeout = DEFAULT_REQUEST_TIMEOUT_SECONDS;
