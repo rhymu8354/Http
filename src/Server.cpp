@@ -901,7 +901,11 @@ namespace Http {
                 );
             }
             bool closeRequested = false;
-            if (response.statusCode == 400) {
+            if (
+                (response.statusCode == 400)
+                || (response.statusCode == 413)
+                || (response.statusCode == 431)
+            ) {
                 closeRequested = true;
                 const auto clientAddress = connectionState->connection->GetPeerAddress();
                 auto& client = clients[clientAddress];

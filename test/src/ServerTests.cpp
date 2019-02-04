@@ -2820,3 +2820,63 @@ TEST_F(ServerTests, MaxMessageSizeCheckedForTotal) {
     );
     EXPECT_TRUE(connection->broken);
 }
+
+TEST_F(ServerTests, BlowingMaxMessageSizeInHeadersResultsInBan) {
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("MaxMessageSize", "125");
+    (void)server.Mobilize(deps);
+    diagnosticMessages.clear();
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    const std::string largeRequest = (
+        "GET /hello.txt HTTP/1.1\r\n"
+        "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
+        "Host: www.example.com\r\n"
+        "Accept-Language: en, mi\r\n"
+        "X-PogChamp-Level: Over 9000\r\n"
+        "\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            largeRequest.begin(),
+            largeRequest.end()
+        )
+    );
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    EXPECT_TRUE(connection->broken);
+}
+
+TEST_F(ServerTests, BlowingMaxMessageSizeInContentResultsInBan) {
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("MaxMessageSize", "125");
+    (void)server.Mobilize(deps);
+    diagnosticMessages.clear();
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    const std::string largeRequest = (
+        "POST / HTTP/1.1\r\n"
+        "Host: foo.com\r\n"
+        "Content-Type: application/x-www-form-urlencoded\r\n"
+        "Content-Length: 100\r\n"
+        "\r\n"
+        "say=Hi&to=Mom&listen_to=lecture&content=remember_to_brush_your_teeth_and_always_wear_clean_underwear\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            largeRequest.begin(),
+            largeRequest.end()
+        )
+    );
+    connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    EXPECT_TRUE(connection->broken);
+}
