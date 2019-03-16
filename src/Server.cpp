@@ -68,6 +68,13 @@ namespace {
 
     /**
      * This is the default maximum number of seconds to allow to elapse
+     * between initiating a graceful close on connection and
+     * forcing the connection closed ungracefully.
+     */
+    constexpr double DEFAULT_GRACEFUL_CLOSE_TIMEOUT_SECONDS = 1.0;
+
+    /**
+     * This is the default maximum number of seconds to allow to elapse
      * between receiving the first byte of a client request and
      * receiving the last byte of the request, before timing out.
      */
@@ -250,6 +257,12 @@ namespace {
         double timeLastRequestStarted = 0.0;
 
         /**
+         * This is the time reported by the time keeper when
+         * a graceful close was initiated on the connection.
+         */
+        double timeClosedGracefully = 0.0;
+
+        /**
          * This flag indicates whether or not the client is currently
          * issuing a request to the server.
          */
@@ -373,6 +386,13 @@ namespace Http {
          * receiving the next byte, before timing out.
          */
         double inactivityTimeout = DEFAULT_INACTIVITY_TIMEOUT_SECONDS;
+
+        /**
+         * This is the maximum number of seconds to allow to elapse
+         * between initiating a graceful close on connection and
+         * forcing the connection closed ungracefully.
+         */
+        double gracefulCloseTimeout = DEFAULT_GRACEFUL_CLOSE_TIMEOUT_SECONDS;
 
         /**
          * This is the maximum number of seconds to allow to elapse
@@ -606,7 +626,17 @@ namespace Http {
                 auto connections = activeConnections;
                 for (const auto& connectionState: connections) {
                     if (connectionState->closed) {
-                        continue;
+                        if (now - connectionState->timeClosedGracefully > gracefulCloseTimeout) {
+                            lock.unlock();
+                            OnConnectionBroken(
+                                connectionState,
+                                "forceably closed by server after graceful close timeout",
+                                ServerConnectionEndHandling::CloseAbruptly
+                            );
+                            lock.lock();
+                        } else {
+                            continue;
+                        }
                     }
                     bool timeout = false;
                     if (connectionState->requestInProgress) {
@@ -1049,6 +1079,7 @@ namespace Http {
             switch (serverConnectionEndHandling) {
                 case ServerConnectionEndHandling::CloseGracefully: {
                     connectionState->connection->Break(true);
+                    connectionState->timeClosedGracefully = timeKeeper->GetCurrentTime();
                 } break;
 
                 case ServerConnectionEndHandling::CloseAbruptly: {
@@ -1446,6 +1477,8 @@ namespace Http {
             impl_->ParseConfigurationItem(impl_->port, "%" SCNu16, "%" PRIu16, "Port number", value);
         } else if (key == "InactivityTimeout") {
             impl_->ParseConfigurationItem(impl_->inactivityTimeout, "%lf", "%lf", "Inactivity timeout", value);
+        } else if (key == "GracefulCloseTimeout") {
+            impl_->ParseConfigurationItem(impl_->gracefulCloseTimeout, "%lf", "%lf", "Graceful close timeout", value);
         } else if (key == "RequestTimeout") {
             impl_->ParseConfigurationItem(impl_->requestTimeout, "%lf", "%lf", "Request timeout", value);
         } else if (key == "IdleTimeout") {

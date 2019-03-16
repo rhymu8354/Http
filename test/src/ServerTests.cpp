@@ -2894,4 +2894,36 @@ TEST_F(ServerTests, ManuallyBanClient) {
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
     EXPECT_TRUE(connection->broken);
+    EXPECT_FALSE(connection->brokenGracefully);
+}
+
+TEST_F(ServerTests, ForceablyCloseConnectionThatLingersAfterGracefulClose) {
+    const auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("Port", "1234");
+    server.SetConfigurationItem("InactivityTimeout", "1.0");
+    server.SetConfigurationItem("GracefulCloseTimeout", "1.0");
+    (void)server.Mobilize(deps);
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    const std::string request = (
+        "GET /foo/bar HTTP/1.1\r\n"
+        "Host: www.example.com\r\n"
+    );
+    connection->dataReceivedDelegate(
+        std::vector< uint8_t >(
+            request.begin(),
+            request.end()
+        )
+    );
+    timeKeeper->currentTime = 1.001;
+    ASSERT_TRUE(connection->AwaitBroken());
+    EXPECT_TRUE(connection->brokenGracefully);
+    connection->broken = false;
+    timeKeeper->currentTime = 2.002;
+    ASSERT_TRUE(connection->AwaitBroken());
+    EXPECT_FALSE(connection->brokenGracefully);
 }
