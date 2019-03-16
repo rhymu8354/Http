@@ -634,9 +634,8 @@ namespace Http {
                                 ServerConnectionEndHandling::CloseAbruptly
                             );
                             lock.lock();
-                        } else {
-                            continue;
                         }
+                        continue;
                     }
                     bool timeout = false;
                     if (connectionState->requestInProgress) {
