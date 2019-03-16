@@ -165,8 +165,15 @@ namespace Http {
          * @param[in] peerAddress
          *     This is the address of the peer whose connections should
          *     be banned.
+         *
+         * @param[in] reason
+         *     This is an explanation of the ban to report through
+         *     the diagnostics system.
          */
-        virtual void Ban(const std::string& peerAddress) = 0;
+        virtual void Ban(
+            const std::string& peerAddress,
+            const std::string& reason
+        ) = 0;
     };
 
 }

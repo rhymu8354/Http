@@ -908,7 +908,14 @@ namespace Http {
             ) {
                 closeRequested = true;
                 const auto clientAddress = connectionState->connection->GetPeerAddress();
-                BanHammer(clientAddress);
+                BanHammer(
+                    clientAddress,
+                    SystemAbstractions::sprintf(
+                        "Bad HTTP: %u %s",
+                        response.statusCode,
+                        response.reasonPhrase.c_str()
+                    )
+                );
             } else {
                 closeRequested = response.headers.HasHeaderToken("Connection", "close");
             }
@@ -928,19 +935,33 @@ namespace Http {
          *
          * @param[in] clientAddress
          *     This is the address of the client to ban.
+         *
+         * @param[in] reason
+         *     This is an explanation of the ban to report through
+         *     the diagnostics system.
          */
-        void BanHammer(const std::string clientAddress) {
+        void BanHammer(
+            const std::string& clientAddress,
+            const std::string& reason
+        ) {
             const auto now = timeKeeper->GetCurrentTime();
             auto& client = clients[clientAddress];
             if (client.banned) {
                 client.banPeriod *= 2.0;
                 diagnosticsSender.SendDiagnosticInformationFormatted(
-                    1, "Request: %s ban extended to %lg seconds",
+                    3, "Request: %s ban extended to %lg seconds (%s)",
                     clientAddress.c_str(),
-                    client.banPeriod
+                    client.banPeriod,
+                    reason.c_str()
                 );
             } else {
                 client.banPeriod = initialBanPeriod;
+                diagnosticsSender.SendDiagnosticInformationFormatted(
+                    3, "Request: %s banned for %lg seconds (%s)",
+                    clientAddress.c_str(),
+                    client.banPeriod,
+                    reason.c_str()
+                );
             }
             client.banStart = now;
             client.banned = true;
@@ -1097,7 +1118,7 @@ namespace Http {
                         request->target.GenerateString(),
                         connectionState->connection->GetPeerId()
                     );
-                    BanHammer(clientAddress);
+                    BanHammer(clientAddress, "Bad HTTP: 429 Too Many Requests");
                 } else if (
                     (request->state == Request::State::Complete)
                     && request->valid
@@ -1205,7 +1226,7 @@ namespace Http {
                         }
                     }
                     diagnosticsSender.SendDiagnosticInformationFormatted(
-                        1, "Request: Bad request from %s: %s",
+                        3, "Request: Bad request from %s: %s",
                         connectionState->connection->GetPeerId().c_str(),
                         requestExtractStringBuilder.str().c_str()
                     );
@@ -1499,8 +1520,11 @@ namespace Http {
         return impl_->timeKeeper;
     }
 
-    void Server::Ban(const std::string& peerAddress) {
+    void Server::Ban(
+        const std::string& peerAddress,
+        const std::string& reason
+    ) {
         std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
-        impl_->BanHammer(peerAddress);
+        impl_->BanHammer(peerAddress, reason);
     }
 }

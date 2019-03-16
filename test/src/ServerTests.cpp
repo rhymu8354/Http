@@ -2103,7 +2103,8 @@ TEST_F(ServerTests, BadRequestDiagnosticMessage) {
     );
     ASSERT_EQ(
         (std::vector< std::string >{
-            "Http::Server[1]: Request: Bad request from mock-client:5555: Pog\\x00Champ\\x20",
+            "Http::Server[3]: Request: Bad request from mock-client:5555: Pog\\x00Champ\\x20",
+            "Http::Server[3]: Request: mock-client banned for 60 seconds (Bad HTTP: 400 Bad Request)",
             "Http::Server[2]: Connection to mock-client:5555 closed by server",
         }),
         diagnosticMessages
@@ -2265,8 +2266,8 @@ TEST_F(ServerTests, BadRequestWhileOnProbationExtendsBan) {
     connection = nullptr;
     ASSERT_EQ(
         (std::vector< std::string >{
-            "Http::Server[1]: Request: Bad request from mock-client:5555: Pog\\x00Champ\\x20",
-            "Http::Server[1]: Request: mock-client ban extended to 2 seconds",
+            "Http::Server[3]: Request: Bad request from mock-client:5555: Pog\\x00Champ\\x20",
+            "Http::Server[3]: Request: mock-client ban extended to 2 seconds (Bad HTTP: 400 Bad Request)",
             "Http::Server[2]: Connection to mock-client:5555 closed by server",
         }),
         diagnosticMessages
@@ -2453,6 +2454,7 @@ TEST_F(ServerTests, TooManyRequestsResultsInBan) {
     ASSERT_EQ(
         (std::vector< std::string >{
             "Http::Server[1]: Request: GET '/' (0) from mock-client:5555: 429 (0)",
+            "Http::Server[3]: Request: mock-client banned for 1 seconds (Bad HTTP: 429 Too Many Requests)",
             "Http::Server[2]: Connection to mock-client:5555 closed by server",
         }),
         diagnosticMessages
@@ -2522,7 +2524,8 @@ TEST_F(ServerTests, MultipleBadRequestsSentAtOnceCausesContinuedProcessingAfterC
     );
     ASSERT_EQ(
         (std::vector< std::string >{
-            "Http::Server[1]: Request: Bad request from mock-client:5555: Pog1",
+            "Http::Server[3]: Request: Bad request from mock-client:5555: Pog1",
+            "Http::Server[3]: Request: mock-client banned for 60 seconds (Bad HTTP: 400 Bad Request)",
             "Http::Server[2]: Connection to mock-client:5555 closed by server",
         }),
         diagnosticMessages
@@ -2887,7 +2890,7 @@ TEST_F(ServerTests, ManuallyBanClient) {
     deps.transport = transport;
     deps.timeKeeper = std::make_shared< MockTimeKeeper >();
     (void)server.Mobilize(deps);
-    server.Ban("mock-client");
+    server.Ban("mock-client", "because I feel like it");
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
     EXPECT_TRUE(connection->broken);
