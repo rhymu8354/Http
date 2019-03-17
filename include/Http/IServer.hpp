@@ -18,6 +18,7 @@
 #include <Http/Connection.hpp>
 #include <memory>
 #include <MessageHeaders/MessageHeaders.hpp>
+#include <set>
 #include <stddef.h>
 #include <string>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
@@ -192,6 +193,14 @@ namespace Http {
          *     server's whitelist.
          */
         virtual void WhitelistRemove(const std::string& peerAddress) = 0;
+
+        /**
+         * Return the current server whitelist.
+         *
+         * @return
+         *     A copy of the server's current whitelist is returned.
+         */
+        virtual std::set< std::string > GetWhitelist() = 0;
     };
 
 }

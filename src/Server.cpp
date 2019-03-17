@@ -1693,4 +1693,9 @@ namespace Http {
         (void)impl_->whitelist.erase(peerAddress);
     }
 
+    std::set< std::string > Server::GetWhitelist() {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        return impl_->whitelist;
+    }
+
 }

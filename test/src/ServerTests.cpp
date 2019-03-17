@@ -2979,7 +2979,18 @@ TEST_F(ServerTests, WhitelistedClientsAllowedThroughNotBlacklisted) {
     deps.timeKeeper = timeKeeper;
     server.SetConfigurationItem("TooManyConnectsThreshold", "1.0");
     server.SetConfigurationItem("TooManyConnectsMeasurementPeriod", "1.0");
+    EXPECT_EQ(
+        std::set< std::string >({
+        }),
+        server.GetWhitelist()
+    );
     server.WhitelistAdd("admin");
+    EXPECT_EQ(
+        std::set< std::string >({
+            "admin"
+        }),
+        server.GetWhitelist()
+    );
     (void)server.Mobilize(deps);
 
     // Act
@@ -2992,6 +3003,11 @@ TEST_F(ServerTests, WhitelistedClientsAllowedThroughNotBlacklisted) {
     connection3->peerAddress = "admin";
     transport->connectionDelegate(connection3);
     server.WhitelistRemove("admin");
+    EXPECT_EQ(
+        std::set< std::string >({
+        }),
+        server.GetWhitelist()
+    );
     const auto connection4 = std::make_shared< MockConnection >();
     connection4->peerAddress = "admin";
     transport->connectionDelegate(connection4);
