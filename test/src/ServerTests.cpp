@@ -3042,3 +3042,25 @@ TEST_F(ServerTests, Unban) {
     transport->connectionDelegate(connection);
     EXPECT_FALSE(connection->broken);
 }
+
+TEST_F(ServerTests, BanNotListedIfBanTimedOut) {
+    // Arrange
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("InitialBanPeriod", "1.0");
+    (void)server.Mobilize(deps);
+    server.Ban("mock-client", "because I feel like it");
+
+    // Act
+    timeKeeper->currentTime += 1.1;
+
+    // Assert
+    EXPECT_EQ(
+        std::set< std::string >({
+        }),
+        server.GetBans()
+    );
+}

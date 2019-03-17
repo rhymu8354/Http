@@ -1692,8 +1692,13 @@ namespace Http {
     std::set< std::string > Server::GetBans() {
         std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
         std::set< std::string > bans;
+        const auto now = impl_->timeKeeper->GetCurrentTime();
         for (const auto& clientsEntry: impl_->clients) {
-            if (clientsEntry.second.banned) {
+            const auto& client = clientsEntry.second;
+            if (
+                client.banned
+                && (now < client.banStart + client.banPeriod)
+            ) {
                 (void)bans.insert(clientsEntry.first);
             }
         }
