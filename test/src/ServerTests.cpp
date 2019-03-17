@@ -303,6 +303,8 @@ TEST_F(ServerTests, DefaultConfiguration) {
     EXPECT_EQ("60.0", server.GetConfigurationItem("ProbationPeriod"));
     EXPECT_EQ("10.0", server.GetConfigurationItem("TooManyRequestsThreshold"));
     EXPECT_EQ("1.0", server.GetConfigurationItem("TooManyRequestsMeasurementPeriod"));
+    EXPECT_EQ("10.0", server.GetConfigurationItem("TooManyRequestsThreshold"));
+    EXPECT_EQ("1.0", server.GetConfigurationItem("TooManyRequestsMeasurementPeriod"));
 }
 
 TEST_F(ServerTests, ParseGetRequest) {
@@ -2926,4 +2928,39 @@ TEST_F(ServerTests, ForceablyCloseConnectionThatLingersAfterGracefulClose) {
     timeKeeper->currentTime = 2.002;
     ASSERT_TRUE(connection->AwaitBroken());
     EXPECT_FALSE(connection->brokenGracefully);
+}
+
+TEST_F(ServerTests, ConnectionRateLimit) {
+    // Arrange
+    auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("TooManyConnectsThreshold", "1.0");
+    server.SetConfigurationItem("TooManyConnectsMeasurementPeriod", "1.0");
+    (void)server.Mobilize(deps);
+
+    // Act
+    const auto connection1 = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection1);
+    timeKeeper->currentTime = 0.9;
+    const auto connection2 = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection2);
+    timeKeeper->currentTime = 1.1;
+    const auto connection3 = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection3);
+    timeKeeper->currentTime = 2.2;
+    const auto connection4 = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection4);
+    timeKeeper->currentTime = 3.1;
+    const auto connection5 = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection5);
+
+    // Assert
+    EXPECT_FALSE(connection1->broken);
+    EXPECT_TRUE(connection2->broken);
+    EXPECT_FALSE(connection3->broken);
+    EXPECT_FALSE(connection4->broken);
+    EXPECT_TRUE(connection5->broken);
 }

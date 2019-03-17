@@ -113,6 +113,18 @@ namespace {
     constexpr double DEFAULT_TOO_MANY_REQUESTS_MEASUREMENT_PERIOD = 1.0;
 
     /**
+     * This is the default threshold, in connect requests per second, above
+     * which client requests will be denied.
+     */
+    constexpr double DEFAULT_TOO_MANY_CONNECTS_THRESHOLD = 100.0;
+
+    /**
+     * This is the period over which the number of connect requests is
+     * measured.
+     */
+    constexpr double DEFAULT_TOO_MANY_CONNECTS_MEASUREMENT_PERIOD = 1.0;
+
+    /**
      * This is the number of milliseconds to wait between rounds of polling
      * connections to check for timeouts.
      */
@@ -426,6 +438,18 @@ namespace Http {
         double tooManyRequestsMeasurementPeriod = DEFAULT_TOO_MANY_REQUESTS_MEASUREMENT_PERIOD;
 
         /**
+         * This is the threshold, in connect requests per second, after which
+         * new requests will be denied.
+         */
+        double tooManyConnectsThreshold = DEFAULT_TOO_MANY_CONNECTS_THRESHOLD;
+
+        /**
+         * This is the period of time over which the number of connect requests
+         * by clients is measured.
+         */
+        double tooManyConnectsMeasurementPeriod = DEFAULT_TOO_MANY_CONNECTS_MEASUREMENT_PERIOD;
+
+        /**
          * This flag indicates whether or not the server is running.
          */
         bool mobilized = false;
@@ -463,6 +487,18 @@ namespace Http {
          * diagnostic messages.
          */
         SystemAbstractions::DiagnosticsSender diagnosticsSender;
+
+        /**
+         * These are samples of the time keeper at each point
+         * when a connection request was made a request in the past.
+         */
+        std::deque< double > lastConnectTimes;
+
+        /**
+         * This flag indicates whether or not the last connection request
+         * was denied due to exceeding the connection request rate limit.
+         */
+        bool connectRateLimited = false;
 
         /**
          * This is a worker thread whose sole job is to clear the
@@ -1284,6 +1320,45 @@ namespace Http {
         }
 
         /**
+         * Check to see if the connection from the given client should be
+         * denied due to exceeding the connection request rate limit.
+         *
+         * @param[in] client
+         *     This is the client whose connection request is being evaluated.
+         *
+         * @return
+         *     An indication of whether or not the client's connection
+         *     request should be accepted is returned.
+         */
+        bool CheckConnectRequestFrequency(const ClientDossier& client) {
+            const auto now = timeKeeper->GetCurrentTime();
+            while (
+                !lastConnectTimes.empty()
+                && (lastConnectTimes.front() < now - tooManyConnectsMeasurementPeriod)
+            ) {
+                lastConnectTimes.pop_front();
+            }
+            const auto numConnectsAcrossMeasurementPeriod = lastConnectTimes.size();
+            const auto averageConnectsPerSecond = (
+                (double)numConnectsAcrossMeasurementPeriod
+                / tooManyConnectsMeasurementPeriod
+            );
+            if (averageConnectsPerSecond >= tooManyConnectsThreshold) {
+                if (!connectRateLimited) {
+                    connectRateLimited = true;
+                    diagnosticsSender.SendDiagnosticInformationString(
+                        SystemAbstractions::DiagnosticsSender::Levels::WARNING,
+                        "Incoming connection rate limit exceeded"
+                    );
+                }
+                return false;
+            }
+            connectRateLimited = false;
+            lastConnectTimes.push_back(now);
+            return true;
+        }
+
+        /**
          * This method is called when a new connection has been
          * established for the server.
          *
@@ -1309,6 +1384,10 @@ namespace Http {
                 } else if (now >= client.banStart + client.banPeriod + probationPeriod) {
                     client.banned = false;
                 }
+            }
+            if (!CheckConnectRequestFrequency(client)) {
+                connection->Break(false);
+                return nullptr;
             }
             diagnosticsSender.SendDiagnosticInformationFormatted(
                 2, "New connection from %s",
@@ -1492,6 +1571,10 @@ namespace Http {
             impl_->ParseConfigurationItem(impl_->tooManyRequestsThreshold, "%lf", "%lf", "Too many requests threshold", value);
         } else if (key == "TooManyRequestsMeasurementPeriod") {
             impl_->ParseConfigurationItem(impl_->tooManyRequestsMeasurementPeriod, "%lf", "%lf", "Too many requests measurement period", value);
+        } else if (key == "TooManyConnectsThreshold") {
+            impl_->ParseConfigurationItem(impl_->tooManyConnectsThreshold, "%lf", "%lf", "Too many connects threshold", value);
+        } else if (key == "TooManyConnectsMeasurementPeriod") {
+            impl_->ParseConfigurationItem(impl_->tooManyConnectsMeasurementPeriod, "%lf", "%lf", "Too many connects measurement period", value);
         }
     }
 
