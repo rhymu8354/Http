@@ -174,6 +174,24 @@ namespace Http {
             const std::string& peerAddress,
             const std::string& reason
         ) = 0;
+
+        /**
+         * Add the given peer address to the server's whitelist.
+         *
+         * @param[in] peerAddress
+         *     This is the address of the peer to add to the
+         *     server's whitelist.
+         */
+        virtual void WhitelistAdd(const std::string& peerAddress) = 0;
+
+        /**
+         * Remove the given peer address from the server's whitelist.
+         *
+         * @param[in] peerAddress
+         *     This is the address of the peer to remove from the
+         *     server's whitelist.
+         */
+        virtual void WhitelistRemove(const std::string& peerAddress) = 0;
     };
 
 }

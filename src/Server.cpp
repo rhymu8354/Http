@@ -470,6 +470,12 @@ namespace Http {
         std::map< std::string, ClientDossier > clients;
 
         /**
+         * This holds the addresses of clients that have been "whitelisted",
+         * or are immune to bans and not checked against rate limits.
+         */
+        std::set< std::string > whitelist;
+
+        /**
          * These are the currently active client connections.
          */
         std::set< std::shared_ptr< ConnectionState > > activeConnections;
@@ -998,6 +1004,9 @@ namespace Http {
         /**
          * This method bans the given client from the server.
          *
+         * @note
+         *     Whitelisted clients cannot be banned.
+         *
          * @param[in] clientAddress
          *     This is the address of the client to ban.
          *
@@ -1009,6 +1018,14 @@ namespace Http {
             const std::string& clientAddress,
             const std::string& reason
         ) {
+            if (whitelist.find(clientAddress) != whitelist.end()) {
+                diagnosticsSender.SendDiagnosticInformationFormatted(
+                    3, "Request: %s would have been banned (%s), but is whitelisted",
+                    clientAddress.c_str(),
+                    reason.c_str()
+                );
+                return;
+            }
             const auto now = timeKeeper->GetCurrentTime();
             auto& client = clients[clientAddress];
             if (client.banned) {
@@ -1163,18 +1180,11 @@ namespace Http {
                 }
                 const auto clientAddress = connectionState->connection->GetPeerAddress();
                 auto& client = clients[clientAddress];
-                const auto now = timeKeeper->GetCurrentTime();
-                client.lastRequestTimes.push_back(now);
-                while (client.lastRequestTimes.front() < now - tooManyRequestsMeasurementPeriod) {
-                    client.lastRequestTimes.pop_front();
-                }
-                const auto numClientRequestsAcrossMeasurementPeriod = client.lastRequestTimes.size();
-                const auto averageClientRequestsPerSecond = (
-                    (double)numClientRequestsAcrossMeasurementPeriod
-                    / tooManyRequestsMeasurementPeriod
-                );
                 Response response;
-                if (averageClientRequestsPerSecond >= tooManyRequestsThreshold) {
+                if (
+                    (whitelist.find(clientAddress) == whitelist.end())
+                    &&!CheckRequestFrequency(client)
+                ) {
                     response.statusCode = 429;
                     response.reasonPhrase = "Too Many Requests";
                     response.headers.SetHeader("Connection", "close");
@@ -1321,16 +1331,16 @@ namespace Http {
 
         /**
          * Check to see if the connection from the given client should be
-         * denied due to exceeding the connection request rate limit.
+         * denied due to exceeding the connection rate limit.
          *
          * @param[in] client
-         *     This is the client whose connection request is being evaluated.
+         *     This is the client whose connection is being evaluated.
          *
          * @return
          *     An indication of whether or not the client's connection
-         *     request should be accepted is returned.
+         *     should be accepted is returned.
          */
-        bool CheckConnectRequestFrequency(const ClientDossier& client) {
+        bool CheckConnectFrequency(const ClientDossier& client) {
             const auto now = timeKeeper->GetCurrentTime();
             while (
                 !lastConnectTimes.empty()
@@ -1359,6 +1369,32 @@ namespace Http {
         }
 
         /**
+         * Check to see if the request from the given client should be
+         * denied due to exceeding the request rate limit.
+         *
+         * @param[in,out] client
+         *     This is the client whose request is being evaluated.
+         *     Its history of request times may be updated.
+         *
+         * @return
+         *     An indication of whether or not the client's
+         *     request should be accepted is returned.
+         */
+        bool CheckRequestFrequency(ClientDossier& client) {
+            const auto now = timeKeeper->GetCurrentTime();
+            client.lastRequestTimes.push_back(now);
+            while (client.lastRequestTimes.front() < now - tooManyRequestsMeasurementPeriod) {
+                client.lastRequestTimes.pop_front();
+            }
+            const auto numClientRequestsAcrossMeasurementPeriod = client.lastRequestTimes.size();
+            const auto averageClientRequestsPerSecond = (
+                (double)numClientRequestsAcrossMeasurementPeriod
+                / tooManyRequestsMeasurementPeriod
+            );
+            return (averageClientRequestsPerSecond < tooManyRequestsThreshold);
+        }
+
+        /**
          * This method is called when a new connection has been
          * established for the server.
          *
@@ -1371,7 +1407,8 @@ namespace Http {
          */
         ServerTransport::ConnectionReadyDelegate NewConnection(std::shared_ptr< Connection > connection) {
             std::lock_guard< decltype(mutex) > lock(mutex);
-            auto& client = clients[connection->GetPeerAddress()];
+            const auto clientAddress = connection->GetPeerAddress();
+            auto& client = clients[clientAddress];
             if (client.banned) {
                 const auto now = timeKeeper->GetCurrentTime();
                 if (now < client.banStart + client.banPeriod) {
@@ -1385,7 +1422,10 @@ namespace Http {
                     client.banned = false;
                 }
             }
-            if (!CheckConnectRequestFrequency(client)) {
+            if (
+                (whitelist.find(clientAddress) == whitelist.end())
+                && !CheckConnectFrequency(client)
+            ) {
                 connection->Break(false);
                 return nullptr;
             }
@@ -1642,4 +1682,15 @@ namespace Http {
         std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
         impl_->BanHammer(peerAddress, reason);
     }
+
+    void Server::WhitelistAdd(const std::string& peerAddress) {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        (void)impl_->whitelist.insert(peerAddress);
+    }
+
+    void Server::WhitelistRemove(const std::string& peerAddress) {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        (void)impl_->whitelist.erase(peerAddress);
+    }
+
 }

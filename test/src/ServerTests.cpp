@@ -35,6 +35,11 @@ namespace {
         std::function< void() > onDestruction;
 
         /**
+         * This is the value to return for the peer address.
+         */
+        std::string peerAddress = "mock-client";
+
+        /**
          * This is used to synchronize access to the wait condition.
          */
         std::recursive_mutex mutex;
@@ -129,7 +134,7 @@ namespace {
         // Http::Connection
 
         virtual std::string GetPeerAddress() override {
-            return "mock-client";
+            return peerAddress;
         }
 
         virtual std::string GetPeerId() override {
@@ -2963,4 +2968,37 @@ TEST_F(ServerTests, ConnectionRateLimit) {
     EXPECT_FALSE(connection3->broken);
     EXPECT_FALSE(connection4->broken);
     EXPECT_TRUE(connection5->broken);
+}
+
+TEST_F(ServerTests, WhitelistedClientsAllowedThroughNotBlacklisted) {
+    // Arrange
+    auto transport = std::make_shared< MockTransport >();
+    const auto timeKeeper = std::make_shared< MockTimeKeeper >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = timeKeeper;
+    server.SetConfigurationItem("TooManyConnectsThreshold", "1.0");
+    server.SetConfigurationItem("TooManyConnectsMeasurementPeriod", "1.0");
+    server.WhitelistAdd("admin");
+    (void)server.Mobilize(deps);
+
+    // Act
+    const auto connection1 = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection1);
+    timeKeeper->currentTime = 0.9;
+    const auto connection2 = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection2);
+    const auto connection3 = std::make_shared< MockConnection >();
+    connection3->peerAddress = "admin";
+    transport->connectionDelegate(connection3);
+    server.WhitelistRemove("admin");
+    const auto connection4 = std::make_shared< MockConnection >();
+    connection4->peerAddress = "admin";
+    transport->connectionDelegate(connection4);
+
+    // Assert
+    EXPECT_FALSE(connection1->broken);
+    EXPECT_TRUE(connection2->broken);
+    EXPECT_FALSE(connection3->broken);
+    EXPECT_TRUE(connection4->broken);
 }
