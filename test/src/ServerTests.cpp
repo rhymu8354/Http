@@ -2902,6 +2902,12 @@ TEST_F(ServerTests, ManuallyBanClient) {
     transport->connectionDelegate(connection);
     EXPECT_TRUE(connection->broken);
     EXPECT_FALSE(connection->brokenGracefully);
+    EXPECT_EQ(
+        std::set< std::string >({
+            "mock-client",
+        }),
+        server.GetBans()
+    );
 }
 
 TEST_F(ServerTests, ForceablyCloseConnectionThatLingersAfterGracefulClose) {

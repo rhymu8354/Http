@@ -186,6 +186,16 @@ namespace Http {
         virtual void Unban(const std::string& peerAddress) = 0;
 
         /**
+         * Return the addresses of peers currently banned from connecting to
+         * the server.
+         *
+         * @return
+         *     The addresses of peers currently banned from connecting to
+         *     the server is returned.
+         */
+        virtual std::set< std::string > GetBans() = 0;
+
+        /**
          * Add the given peer address to the server's whitelist.
          *
          * @param[in] peerAddress
