@@ -177,6 +177,15 @@ namespace Http {
         ) = 0;
 
         /**
+         * List the ban on connections from the given peer address.
+         *
+         * @param[in] peerAddress
+         *     This is the address of the peer whose connections should
+         *     be unbanned.
+         */
+        virtual void Unban(const std::string& peerAddress) = 0;
+
+        /**
          * Add the given peer address to the server's whitelist.
          *
          * @param[in] peerAddress

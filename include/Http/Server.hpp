@@ -160,6 +160,7 @@ namespace Http {
             const std::string& peerAddress,
             const std::string& reason
         ) override;
+        virtual void Unban(const std::string& peerAddress) override;
         virtual void WhitelistAdd(const std::string& peerAddress) override;
         virtual void WhitelistRemove(const std::string& peerAddress) override;
         virtual std::set< std::string > GetWhitelist() override;

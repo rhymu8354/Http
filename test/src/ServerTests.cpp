@@ -3018,3 +3018,21 @@ TEST_F(ServerTests, WhitelistedClientsAllowedThroughNotBlacklisted) {
     EXPECT_FALSE(connection3->broken);
     EXPECT_TRUE(connection4->broken);
 }
+
+TEST_F(ServerTests, Unban) {
+    // Arrange
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    (void)server.Mobilize(deps);
+    server.Ban("mock-client", "because I feel like it");
+
+    // Act
+    server.Unban("mock-client");
+
+    // Assert
+    auto connection = std::make_shared< MockConnection >();
+    transport->connectionDelegate(connection);
+    EXPECT_FALSE(connection->broken);
+}

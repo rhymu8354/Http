@@ -1683,6 +1683,12 @@ namespace Http {
         impl_->BanHammer(peerAddress, reason);
     }
 
+    void Server::Unban(const std::string& peerAddress) {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        auto& client = impl_->clients[peerAddress];
+        client.banned = false;
+    }
+
     void Server::WhitelistAdd(const std::string& peerAddress) {
         std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
         (void)impl_->whitelist.insert(peerAddress);
