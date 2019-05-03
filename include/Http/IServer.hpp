@@ -70,6 +70,23 @@ namespace Http {
         typedef std::function< void() > UnregistrationDelegate;
 
         /**
+         * This is the type of function which can be registered to be called
+         * whenever an IP address is added to the web server's ban list.
+         *
+         * @param[in] peerAddress
+         *     This is the address of the peer whose connections should
+         *     be banned.
+         *
+         * @param[in] reason
+         *     This is an explanation of the ban to report through
+         *     the diagnostics system.
+         */
+        typedef std::function< void(
+            const std::string& peerAddress,
+            const std::string& reason
+        ) > BanDelegate;
+
+        /**
          * This method forms a new subscription to diagnostic
          * messages published by the sender.
          *
@@ -144,6 +161,22 @@ namespace Http {
         virtual UnregistrationDelegate RegisterResource(
             const std::vector< std::string >& resourceSubspacePath,
             ResourceDelegate resourceDelegate
+        ) = 0;
+
+        /**
+         * Register a function to be called whenever an IP address is added to
+         * the web server's ban list.
+         *
+         * @param[in] banDelegate
+         *     This is the function to be called whenever an IP address
+         *     is added to the web server's ban list.
+         *
+         * @return
+         *     A function is returned which, if called, revokes
+         *     the registration of the ban delegate.
+         */
+        virtual UnregistrationDelegate RegisterBanDelegate(
+            BanDelegate banDelegate
         ) = 0;
 
         /**

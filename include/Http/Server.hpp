@@ -155,6 +155,9 @@ namespace Http {
             const std::vector< std::string >& resourceSubspacePath,
             ResourceDelegate resourceDelegate
         ) override;
+        virtual UnregistrationDelegate RegisterBanDelegate(
+            BanDelegate banDelegate
+        ) override;
         virtual std::shared_ptr< TimeKeeper > GetTimeKeeper() override;
         virtual void Ban(
             const std::string& peerAddress,
@@ -178,7 +181,7 @@ namespace Http {
         /**
          * This contains the private properties of the instance.
          */
-        std::unique_ptr< Impl > impl_;
+        std::shared_ptr< Impl > impl_;
     };
 
 }

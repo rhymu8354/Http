@@ -17,6 +17,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <set>
 #include <sstream>
 #include <stddef.h>
@@ -340,6 +341,23 @@ namespace {
         std::deque< double > lastRequestTimes;
     };
 
+    /**
+     * This holds the arguments to pass when calling any registered
+     * ban delegates.
+     */
+    struct BanDelegateArguments {
+        /**
+         * This is the address of the peer whose connections should be banned.
+         */
+        std::string peerAddress;
+
+        /**
+         * This is an explanation of the ban to report through the diagnostics
+         * system.
+         */
+        std::string reason;
+    };
+
 }
 
 namespace Http {
@@ -489,6 +507,23 @@ namespace Http {
         std::set< std::shared_ptr< ConnectionState > > connectionsToDrop;
 
         /**
+         * This holds the arguments for any ban delegate calls that have
+         * been queued to be called by the reaper thread.
+         */
+        std::queue< BanDelegateArguments > queuedBanDelegateCallArguments;
+
+        /**
+         * This holds all registered ban delegates.
+         */
+        std::map< int, BanDelegate > banDelegates;
+
+        /**
+         * This is the next unique identification number to assign to
+         * a registered ban delegate.
+         */
+        int nextBanDelegateId = 1;
+
+        /**
          * This is a helper object used to generate and publish
          * diagnostic messages.
          */
@@ -507,11 +542,10 @@ namespace Http {
         bool connectRateLimited = false;
 
         /**
-         * This is a worker thread whose sole job is to clear the
-         * connectionsToDrop set.  The reason we need to put
-         * connections to drop there in the first place is because we
-         * can't drop a connection that is in the process of calling
-         * us through one of the delegates we gave it.
+         * This is a worker thread which clears the connectionsToDrop set
+         * and completes any queued delegate calls.  This prevents deadlocks
+         * since these activities must be done without holding the server's
+         * mutex.
          */
         std::thread reaper;
 
@@ -643,12 +677,30 @@ namespace Http {
                     oldConnectionsToDrop.clear();
                     lock.lock();
                 }
+                std::queue< BanDelegateArguments > banDelegateCallArguments;
+                banDelegateCallArguments.swap(queuedBanDelegateCallArguments);
+                const auto banDelegatesCopy = banDelegates;
+                {
+                    lock.unlock();
+                    while (!banDelegateCallArguments.empty()) {
+                        const auto& arguments = banDelegateCallArguments.front();
+                        for (const auto& banDelegate: banDelegatesCopy) {
+                            banDelegate.second(
+                                arguments.peerAddress,
+                                arguments.reason
+                            );
+                        }
+                        banDelegateCallArguments.pop();
+                    }
+                    lock.lock();
+                }
                 reaperWakeCondition.wait(
                     lock,
                     [this]{
                         return (
                             stopReaper
                             || !connectionsToDrop.empty()
+                            || !queuedBanDelegateCallArguments.empty()
                         );
                     }
                 );
@@ -1026,6 +1078,11 @@ namespace Http {
                 );
                 return;
             }
+            BanDelegateArguments banDelegateArguments;
+            banDelegateArguments.peerAddress = clientAddress;
+            banDelegateArguments.reason = reason;
+            queuedBanDelegateCallArguments.push(banDelegateArguments);
+            reaperWakeCondition.notify_all();
             const auto now = timeKeeper->GetCurrentTime();
             auto& client = clients[clientAddress];
             if (client.banned) {
@@ -1669,6 +1726,23 @@ namespace Http {
         } else {
             return nullptr;
         }
+    }
+
+    auto Server::RegisterBanDelegate(
+        BanDelegate banDelegate
+    ) -> UnregistrationDelegate {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        const auto id = impl_->nextBanDelegateId++;
+        impl_->banDelegates[id] = banDelegate;
+        std::weak_ptr< Impl > weakImpl(impl_);
+        return [id, weakImpl]{
+            auto impl = weakImpl.lock();
+            if (!impl) {
+                return;
+            }
+            std::lock_guard< decltype(impl->mutex) > lock(impl->mutex);
+            (void)impl->banDelegates.erase(id);
+        };
     }
 
     std::shared_ptr< TimeKeeper > Server::GetTimeKeeper() {

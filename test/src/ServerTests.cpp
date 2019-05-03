@@ -8,6 +8,7 @@
  */
 
 #include <condition_variable>
+#include <future>
 #include <gtest/gtest.h>
 #include <Http/Client.hpp>
 #include <Http/Server.hpp>
@@ -2907,6 +2908,73 @@ TEST_F(ServerTests, ManuallyBanClient) {
             "mock-client",
         }),
         server.GetBans()
+    );
+}
+
+TEST_F(ServerTests, BanDelegate) {
+    // Arrange
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    (void)server.Mobilize(deps);
+    std::promise< void > wasBanned;
+    std::string banPeerAddress;
+    std::string banReason;
+    auto unregister = server.RegisterBanDelegate(
+        [&wasBanned, &banPeerAddress, &banReason](
+            const std::string& peerAddress,
+            const std::string& reason
+        ) {
+            wasBanned.set_value();
+            banPeerAddress = peerAddress;
+            banReason = reason;
+        }
+    );
+
+    // Act
+    server.Ban("mock-client", "because I feel like it");
+
+    // Assert
+    auto wasBannedFuture = wasBanned.get_future();
+    ASSERT_EQ(
+        std::future_status::ready,
+        wasBannedFuture.wait_for(std::chrono::milliseconds(100))
+    );
+    EXPECT_EQ("mock-client", banPeerAddress);
+    EXPECT_EQ("because I feel like it", banReason);
+}
+
+TEST_F(ServerTests, BanDelegateUnregistered) {
+    // Arrange
+    auto transport = std::make_shared< MockTransport >();
+    Http::Server::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    (void)server.Mobilize(deps);
+    std::promise< void > wasBanned;
+    std::string banPeerAddress;
+    std::string banReason;
+    auto unregister = server.RegisterBanDelegate(
+        [&wasBanned, &banPeerAddress, &banReason](
+            const std::string& peerAddress,
+            const std::string& reason
+        ) {
+            wasBanned.set_value();
+            banPeerAddress = peerAddress;
+            banReason = reason;
+        }
+    );
+
+    // Act
+    unregister();
+    server.Ban("mock-client", "because I feel like it");
+
+    // Assert
+    auto wasBannedFuture = wasBanned.get_future();
+    ASSERT_NE(
+        std::future_status::ready,
+        wasBannedFuture.wait_for(std::chrono::milliseconds(100))
     );
 }
 
