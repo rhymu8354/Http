@@ -2926,9 +2926,9 @@ TEST_F(ServerTests, BanDelegate) {
             const std::string& peerAddress,
             const std::string& reason
         ) {
-            wasBanned.set_value();
             banPeerAddress = peerAddress;
             banReason = reason;
+            wasBanned.set_value();
         }
     );
 
@@ -2960,9 +2960,9 @@ TEST_F(ServerTests, BanDelegateUnregistered) {
             const std::string& peerAddress,
             const std::string& reason
         ) {
-            wasBanned.set_value();
             banPeerAddress = peerAddress;
             banReason = reason;
+            wasBanned.set_value();
         }
     );
 
