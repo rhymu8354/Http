@@ -1559,6 +1559,7 @@ TEST_F(ServerTests, InactivityTimeout) {
     server.SetConfigurationItem("Port", "1234");
     server.SetConfigurationItem("InactivityTimeout", "1.0");
     (void)server.Mobilize(deps);
+    auto& scheduler = server.GetScheduler();
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
     const std::string request = (
@@ -1572,13 +1573,17 @@ TEST_F(ServerTests, InactivityTimeout) {
         )
     );
     timeKeeper->currentTime = 0.999;
+    scheduler.WakeUp();
     ASSERT_FALSE(connection->AwaitResponse());
     connection->dataReceivedDelegate({'x'});
     timeKeeper->currentTime = 1.001;
+    scheduler.WakeUp();
     ASSERT_FALSE(connection->AwaitResponse());
     timeKeeper->currentTime = 1.998;
+    scheduler.WakeUp();
     ASSERT_FALSE(connection->AwaitResponse());
     timeKeeper->currentTime = 2.000;
+    scheduler.WakeUp();
     ASSERT_TRUE(connection->AwaitResponse());
     Http::Client client;
     std::string dataReceived(
@@ -1602,6 +1607,7 @@ TEST_F(ServerTests, RequestTimeout) {
     server.SetConfigurationItem("InactivityTimeout", "10.0");
     server.SetConfigurationItem("RequestTimeout", "1.0");
     (void)server.Mobilize(deps);
+    auto& scheduler = server.GetScheduler();
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
     const std::string request = (
@@ -1615,9 +1621,11 @@ TEST_F(ServerTests, RequestTimeout) {
         )
     );
     timeKeeper->currentTime = 0.999;
+    scheduler.WakeUp();
     ASSERT_FALSE(connection->AwaitResponse());
-    connection->dataReceivedDelegate({'x'});
+    // connection->dataReceivedDelegate({'x'});
     timeKeeper->currentTime = 1.001;
+    scheduler.WakeUp();
     ASSERT_TRUE(connection->AwaitResponse());
     Http::Client client;
     const auto response = client.ParseResponse(
@@ -1631,6 +1639,7 @@ TEST_F(ServerTests, RequestTimeout) {
     ASSERT_TRUE(connection->AwaitBroken());
     connection->dataReceived.clear();
     timeKeeper->currentTime = 1.001;
+    scheduler.WakeUp();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     ASSERT_TRUE(connection->dataReceived.empty());
 }
@@ -1654,9 +1663,11 @@ TEST_F(ServerTests, IdleTimeout) {
     server.SetConfigurationItem("RequestTimeout", "1.0");
     server.SetConfigurationItem("IdleTimeout", "100.0");
     (void)server.Mobilize(deps);
+    auto& scheduler = server.GetScheduler();
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
     timeKeeper->currentTime = 1.001;
+    scheduler.WakeUp();
     ASSERT_FALSE(connection->AwaitBroken());
     const std::string request = (
         "GET /foo/bar HTTP/1.1\r\n"
@@ -1672,6 +1683,7 @@ TEST_F(ServerTests, IdleTimeout) {
     ASSERT_TRUE(connection->AwaitResponse());
     connection->dataReceived.clear();
     timeKeeper->currentTime = 2.002;
+    scheduler.WakeUp();
     ASSERT_FALSE(connection->AwaitBroken());
     connection->dataReceivedDelegate(
         std::vector< uint8_t >(
@@ -1681,8 +1693,10 @@ TEST_F(ServerTests, IdleTimeout) {
     );
     ASSERT_TRUE(connection->AwaitResponse());
     timeKeeper->currentTime = 30.0;
+    scheduler.WakeUp();
     ASSERT_FALSE(connection->AwaitBroken());
     timeKeeper->currentTime = 103.0;
+    scheduler.WakeUp();
     ASSERT_TRUE(connection->AwaitBroken());
 }
 
@@ -2235,6 +2249,7 @@ TEST_F(ServerTests, BadRequestWhileOnProbationExtendsBan) {
     server.SetConfigurationItem("InitialBanPeriod", "1.0");
     server.SetConfigurationItem("BadRequestReportBytes", "10");
     (void)server.Mobilize(deps);
+    auto& schedule = server.GetScheduler();
 
     // Start a new mock connection.
     auto connection = std::make_shared< MockConnection >();
@@ -2255,6 +2270,7 @@ TEST_F(ServerTests, BadRequestWhileOnProbationExtendsBan) {
 
     // Advance time until the client is on probation.
     timeKeeper->currentTime = 1.5;
+    schedule.WakeUp();
 
     // Start a second mock connection.
     connection = std::make_shared< MockConnection >();
@@ -2283,6 +2299,7 @@ TEST_F(ServerTests, BadRequestWhileOnProbationExtendsBan) {
 
     // Advance time one more initial ban period.
     timeKeeper->currentTime = 2.5;
+    schedule.WakeUp();
 
     // Connect a third time, but expect to be still banned.
     connection = std::make_shared< MockConnection >();
@@ -2291,6 +2308,7 @@ TEST_F(ServerTests, BadRequestWhileOnProbationExtendsBan) {
 
     // Advance time one more initial ban period.
     timeKeeper->currentTime = 4.0;
+    schedule.WakeUp();
 
     // Connect a fourth time, and expect this time to succeed.
     connection = std::make_shared< MockConnection >();
@@ -2988,6 +3006,7 @@ TEST_F(ServerTests, ForceablyCloseConnectionThatLingersAfterGracefulClose) {
     server.SetConfigurationItem("InactivityTimeout", "1.0");
     server.SetConfigurationItem("GracefulCloseTimeout", "1.0");
     (void)server.Mobilize(deps);
+    auto& scheduler = server.GetScheduler();
     auto connection = std::make_shared< MockConnection >();
     transport->connectionDelegate(connection);
     const std::string request = (
@@ -3001,10 +3020,12 @@ TEST_F(ServerTests, ForceablyCloseConnectionThatLingersAfterGracefulClose) {
         )
     );
     timeKeeper->currentTime = 1.001;
+    scheduler.WakeUp();
     ASSERT_TRUE(connection->AwaitBroken());
     EXPECT_TRUE(connection->brokenGracefully);
     connection->broken = false;
     timeKeeper->currentTime = 2.002;
+    scheduler.WakeUp();
     ASSERT_TRUE(connection->AwaitBroken());
     EXPECT_FALSE(connection->brokenGracefully);
 }

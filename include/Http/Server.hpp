@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <string>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
+#include <Timekeeping/Scheduler.hpp>
 #include <Uri/Uri.hpp>
 
 namespace Http {
@@ -139,6 +140,23 @@ namespace Http {
             const std::string& rawRequest,
             size_t& messageEnd
         );
+
+        // --------------------------------------------------------------------
+        // All methods in this section are for testing only and should not
+        // be used outside of the test framework.
+        // ⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇
+        // --------------------------------------------------------------------
+
+        /**
+         * Return access to the scheduler used by the web server.
+         */
+        Timekeeping::Scheduler& GetScheduler();
+
+        // --------------------------------------------------------------------
+        // ⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆
+        // All methods in this section are for testing only and should not
+        // be used outside of the test framework.
+        // --------------------------------------------------------------------
 
         // IServer
     public:

@@ -34,6 +34,8 @@ There are two distinct steps in the build process:
 
 * [CMake](https://cmake.org/) version 3.8 or newer
 * C++11 toolchain compatible with CMake for your development platform (e.g. [Visual Studio](https://www.visualstudio.com/) on Windows)
+* [Timekeeping](https://github.com/rhymu8354/Timekeeping.git) - a library
+  of classes and interfaces dealing with tracking time and scheduling work
 
 ### Build system generation
 

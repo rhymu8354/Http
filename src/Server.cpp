@@ -141,6 +141,41 @@ namespace {
     };
 
     /**
+     * This is a temporary wrapper to adapt the Http::TimeKeeper interface
+     * to the Timekeeping::Clock interface.  It will be removed once the
+     * Http::TimeKeeper interface becomes obsolete.
+     */
+    struct ClockWrapper
+        : public Timekeeping::Clock
+    {
+        // Properties
+
+        /**
+         * This is the timekeeper wrapped by this adapter.
+         */
+        std::shared_ptr< Http::TimeKeeper > timeKeeper;
+
+        // Methods
+
+        /**
+         * Construct a new wrapper for the given timekeeper.
+         *
+         * @param[in] timeKeeper
+         *     This is the timekeeper wrapped by this adapter.
+         */
+        explicit ClockWrapper(std::shared_ptr< Http::TimeKeeper > timeKeeper)
+            : timeKeeper(timeKeeper)
+        {
+        }
+
+        // Timekeeping::Clock
+
+        virtual double GetCurrentTime() override {
+            return timeKeeper->GetCurrentTime();
+        }
+    };
+
+    /**
      * This is used to record what resources are currently supported
      * by the server, and through which handler delegates.
      */
@@ -264,10 +299,22 @@ namespace {
         double timeLastDataReceived = 0.0;
 
         /**
+         * When a request is in progress, this is the token obtained
+         * from the scheduler for the scheduled inactivity timeout callback.
+         */
+        int inactivityTimeoutToken = 0;
+
+        /**
          * This is the time reported by the time keeper when
          * the current request was started.
          */
         double timeLastRequestStarted = 0.0;
+
+        /**
+         * When a request is in progress, this is the token obtained
+         * from the scheduler for the scheduled request timeout callback.
+         */
+        int requestTimeoutToken = 0;
 
         /**
          * This is the time reported by the time keeper when
@@ -280,6 +327,12 @@ namespace {
          * issuing a request to the server.
          */
         bool requestInProgress = false;
+
+        /**
+         * When no request is in progress, this is the token obtained
+         * from the scheduler for the scheduled idle timeout callback.
+         */
+        int idleTimeoutToken = 0;
 
         /**
          * This buffer is used to reassemble fragmented HTTP requests
@@ -483,6 +536,12 @@ namespace Http {
         std::shared_ptr< TimeKeeper > timeKeeper;
 
         /**
+         * This is used to schedule work to be done without having to
+         * poll the timekeeper.
+         */
+        std::unique_ptr< Timekeeping::Scheduler > scheduler;
+
+        /**
          * This holds information about known clients of the server.
          */
         std::map< std::string, ClientDossier > clients;
@@ -569,29 +628,6 @@ namespace Http {
          * condition that it should cause it to wake up.
          */
         std::condition_variable_any reaperWakeCondition;
-
-        /**
-         * This is a worker thread whose sole job is to monitor
-         * open connections for two different situations:
-         * 1.  Too much time elapsed between receiving two sequential
-         *     bytes of a request.
-         * 2.  Too much time elapsed between the start of a request
-         *     and the receipt of the last byte of the request.
-         * If either situation occurs, a "408 Request timeout" response
-         * is given to the client, and then the connection is closed.
-         */
-        std::thread timer;
-
-        /**
-         * This flag indicates whether or not the timer thread should stop.
-         */
-        bool stopTimer = false;
-
-        /**
-         * This is used by the timer thread to wait on any
-         * condition that it should cause it to wake up.
-         */
-        std::condition_variable_any timerWakeCondition;
 
         // Methods
 
@@ -703,62 +739,6 @@ namespace Http {
                             || !queuedBanDelegateCallArguments.empty()
                         );
                     }
-                );
-            }
-        }
-
-        /**
-         * This method is the body of the timer thread.
-         * Until it's told to stop, it monitors connections
-         * and closes them with a "408 Request Timeout"
-         * if any timeouts occur.
-         */
-        void Timer() {
-            std::unique_lock< decltype(mutex) > lock(mutex);
-            while (!stopTimer) {
-                const auto now = timeKeeper->GetCurrentTime();
-                auto connections = activeConnections;
-                for (const auto& connectionState: connections) {
-                    if (connectionState->closed) {
-                        if (now - connectionState->timeClosedGracefully > gracefulCloseTimeout) {
-                            lock.unlock();
-                            OnConnectionBroken(
-                                connectionState,
-                                "forceably closed by server after graceful close timeout",
-                                ServerConnectionEndHandling::CloseAbruptly
-                            );
-                            lock.lock();
-                        }
-                        continue;
-                    }
-                    bool timeout = false;
-                    if (connectionState->requestInProgress) {
-                        if (
-                            (now - connectionState->timeLastDataReceived > inactivityTimeout)
-                            || (now - connectionState->timeLastRequestStarted > requestTimeout)
-                        ) {
-                            timeout = true;
-                        }
-                    } else if (now - connectionState->timeLastDataReceived > idleTimeout) {
-                        timeout = true;
-                    }
-                    if (timeout) {
-                        const auto response = std::make_shared< Response >();
-                        response->statusCode = 408;
-                        response->reasonPhrase = "Request Timeout";
-                        response->headers.AddHeader("Connection", "close");
-                        lock.unlock();
-                        IssueResponse(connectionState, *response, true);
-                        lock.lock();
-                    }
-                }
-                lock.unlock();
-                connections.clear();
-                lock.lock();
-                (void)timerWakeCondition.wait_for(
-                    lock,
-                    std::chrono::milliseconds(TIMER_POLLING_PERIOD_MILLISECONDS),
-                    [this]{ return stopTimer; }
                 );
             }
         }
@@ -944,20 +924,20 @@ namespace Http {
          *     reassembly buffer.
          */
         std::shared_ptr< Request > TryRequestAssembly(
-            ConnectionState& connectionState
+            std::shared_ptr< ConnectionState > connectionState
         ) {
             const auto charactersAccepted = ParseRequest(
-                *connectionState.nextRequest,
-                connectionState.reassemblyBuffer
+                *connectionState->nextRequest,
+                connectionState->reassemblyBuffer
             );
-            connectionState.reassemblyBuffer.erase(
-                connectionState.reassemblyBuffer.begin(),
-                connectionState.reassemblyBuffer.begin() + charactersAccepted
+            connectionState->reassemblyBuffer.erase(
+                connectionState->reassemblyBuffer.begin(),
+                connectionState->reassemblyBuffer.begin() + charactersAccepted
             );
-            if (!connectionState.nextRequest->IsCompleteOrError()) {
+            if (!connectionState->nextRequest->IsCompleteOrError()) {
                 return nullptr;
             }
-            const auto request = connectionState.nextRequest;
+            const auto request = connectionState->nextRequest;
             StartNextRequest(connectionState);
             return request;
         }
@@ -970,13 +950,50 @@ namespace Http {
          *     the next client request.
          */
         void StartNextRequest(
-            ConnectionState& connectionState
+            std::shared_ptr< ConnectionState > connectionState
         ) {
-            connectionState.nextRequest = std::make_shared< Request >();
+            connectionState->nextRequest = std::make_shared< Request >();
             const auto now = timeKeeper->GetCurrentTime();
-            connectionState.requestInProgress = !connectionState.reassemblyBuffer.empty();
-            connectionState.timeLastDataReceived = now;
-            connectionState.timeLastRequestStarted = now;
+            connectionState->requestInProgress = !connectionState->reassemblyBuffer.empty();
+            if (connectionState->idleTimeoutToken != 0) {
+                scheduler->Cancel(connectionState->idleTimeoutToken);
+                connectionState->idleTimeoutToken = 0;
+            }
+            if (connectionState->inactivityTimeoutToken != 0) {
+                scheduler->Cancel(connectionState->inactivityTimeoutToken);
+                connectionState->inactivityTimeoutToken = 0;
+            }
+            if (connectionState->requestTimeoutToken != 0) {
+                scheduler->Cancel(connectionState->requestTimeoutToken);
+                connectionState->requestTimeoutToken = 0;
+            }
+            std::weak_ptr< ConnectionState > connectionStateWeak(connectionState);
+            const auto timeoutCallback = [
+                this,
+                connectionStateWeak
+            ]{
+                auto connectionState = connectionStateWeak.lock();
+                if (connectionState != nullptr) {
+                    IssueTimeoutResponse(connectionState);
+                }
+            };
+            if (connectionState->requestInProgress) {
+                connectionState->requestTimeoutToken = scheduler->Schedule(
+                    timeoutCallback,
+                    now + requestTimeout
+                );
+                connectionState->inactivityTimeoutToken = scheduler->Schedule(
+                    timeoutCallback,
+                    now + inactivityTimeout
+                );
+            } else {
+                connectionState->idleTimeoutToken = scheduler->Schedule(
+                    timeoutCallback,
+                    now + idleTimeout
+                );
+            }
+            connectionState->timeLastDataReceived = now;
+            connectionState->timeLastRequestStarted = now;
         }
 
         /**
@@ -1051,6 +1068,24 @@ namespace Http {
                     ServerConnectionEndHandling::CloseGracefully
                 );
             }
+        }
+
+        /**
+         * This method sends a request timeout response back to the given
+         * client.
+         *
+         * @param[in] connectionState
+         *     This is the state of the connection for which to issue
+         *     the given response.
+         */
+        void IssueTimeoutResponse(
+            std::shared_ptr< ConnectionState > connectionState
+        ) {
+            const auto response = std::make_shared< Response >();
+            response->statusCode = 408;
+            response->reasonPhrase = "Request Timeout";
+            response->headers.AddHeader("Connection", "close");
+            IssueResponse(connectionState, *response, true);
         }
 
         /**
@@ -1189,6 +1224,24 @@ namespace Http {
                 case ServerConnectionEndHandling::CloseGracefully: {
                     connectionState->connection->Break(true);
                     connectionState->timeClosedGracefully = timeKeeper->GetCurrentTime();
+                    std::weak_ptr< ConnectionState > connectionStateWeak(connectionState);
+                    scheduler->Schedule(
+                        [
+                            this,
+                            connectionStateWeak
+                        ]{
+                            auto connectionState = connectionStateWeak.lock();
+                            if (connectionState == nullptr) {
+                                return;
+                            }
+                            OnConnectionBroken(
+                                connectionState,
+                                "forceably closed by server after graceful close timeout",
+                                ServerConnectionEndHandling::CloseAbruptly
+                            );
+                        },
+                        timeKeeper->GetCurrentTime() + gracefulCloseTimeout
+                    );
                 } break;
 
                 case ServerConnectionEndHandling::CloseAbruptly: {
@@ -1218,7 +1271,15 @@ namespace Http {
             }
             const auto now = timeKeeper->GetCurrentTime();
             connectionState->requestInProgress = true;
+            if (connectionState->idleTimeoutToken != 0) {
+                scheduler->Cancel(connectionState->idleTimeoutToken);
+                connectionState->idleTimeoutToken = 0;
+            }
             connectionState->timeLastDataReceived = now;
+            if (connectionState->inactivityTimeoutToken != 0) {
+                scheduler->Cancel(connectionState->inactivityTimeoutToken);
+                connectionState->inactivityTimeoutToken = 0;
+            }
             connectionState->reassemblyBuffer += std::string(data.begin(), data.end());
             if (connectionState->requestExtract.size() < badRequestReportBytes) {
                 connectionState->requestExtract.insert(
@@ -1231,7 +1292,7 @@ namespace Http {
                 );
             }
             while (connectionState->acceptingRequests) {
-                const auto request = TryRequestAssembly(*connectionState);
+                const auto request = TryRequestAssembly(connectionState);
                 if (request == nullptr) {
                     break;
                 }
@@ -1384,6 +1445,29 @@ namespace Http {
                     (void)activeConnections.erase(connectionState);
                 }
             }
+            if (
+                connectionState->requestInProgress
+                && (connectionState->inactivityTimeoutToken == 0)
+            ) {
+                std::weak_ptr< ConnectionState > connectionStateWeak(connectionState);
+                const auto timeoutCallback = [
+                    this,
+                    connectionStateWeak
+                ]{
+                    auto connectionState = connectionStateWeak.lock();
+                    if (connectionState != nullptr) {
+                        IssueTimeoutResponse(connectionState);
+                    }
+                };
+                connectionState->requestTimeoutToken = scheduler->Schedule(
+                    timeoutCallback,
+                    now + requestTimeout
+                );
+                connectionState->inactivityTimeoutToken = scheduler->Schedule(
+                    timeoutCallback,
+                    now + inactivityTimeout
+                );
+            }
         }
 
         /**
@@ -1491,7 +1575,7 @@ namespace Http {
                 connection->GetPeerId().c_str()
             );
             const auto connectionState = std::make_shared< ConnectionState >();
-            StartNextRequest(*connectionState);
+            StartNextRequest(connectionState);
             connectionState->connection = connection;
             (void)activeConnections.insert(connectionState);
             std::weak_ptr< ConnectionState > connectionStateWeak(connectionState);
@@ -1582,21 +1666,16 @@ namespace Http {
         }
         impl_->configuration["Port"] = SystemAbstractions::sprintf("%" PRIu16, impl_->port);
         impl_->timeKeeper = deps.timeKeeper;
-        impl_->stopTimer = false;
-        impl_->timer = std::thread(&Impl::Timer, impl_.get());
+        impl_->scheduler.reset(new Timekeeping::Scheduler);
+        impl_->scheduler->SetClock(
+            std::make_shared< ClockWrapper >(impl_->timeKeeper)
+        );
         impl_->mobilized = true;
         return true;
     }
 
     void Server::Demobilize() {
-        if (impl_->timer.joinable()) {
-            {
-                std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
-                impl_->stopTimer = true;
-                impl_->timerWakeCondition.notify_all();
-            }
-            impl_->timer.join();
-        }
+        impl_->scheduler = nullptr;
         if (impl_->transport != nullptr) {
             impl_->transport->ReleaseNetwork();
             impl_->transport = nullptr;
@@ -1621,6 +1700,10 @@ namespace Http {
         } else {
             return nullptr;
         }
+    }
+
+    Timekeeping::Scheduler& Server::GetScheduler() {
+        return *impl_->scheduler;
     }
 
     SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate Server::SubscribeToDiagnostics(
