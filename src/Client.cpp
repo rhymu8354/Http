@@ -26,6 +26,7 @@
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <SystemAbstractions/StringExtensions.hpp>
 #include <thread>
+#include <Timekeeping/Scheduler.hpp>
 
 namespace {
 
@@ -47,6 +48,41 @@ namespace {
      * connections to check for timeouts.
      */
     constexpr unsigned int CONNECTION_POLLING_PERIOD_MILLISECONDS = 50;
+
+    /**
+     * This is a temporary wrapper to adapt the Http::TimeKeeper interface
+     * to the Timekeeping::Clock interface.  It will be removed once the
+     * Http::TimeKeeper interface becomes obsolete.
+     */
+    struct ClockWrapper
+        : public Timekeeping::Clock
+    {
+        // Properties
+
+        /**
+         * This is the timekeeper wrapped by this adapter.
+         */
+        std::shared_ptr< Http::TimeKeeper > timeKeeper;
+
+        // Methods
+
+        /**
+         * Construct a new wrapper for the given timekeeper.
+         *
+         * @param[in] timeKeeper
+         *     This is the timekeeper wrapped by this adapter.
+         */
+        explicit ClockWrapper(std::shared_ptr< Http::TimeKeeper > timeKeeper)
+            : timeKeeper(timeKeeper)
+        {
+        }
+
+        // Timekeeping::Clock
+
+        virtual double GetCurrentTime() override {
+            return timeKeeper->GetCurrentTime();
+        }
+    };
 
     /**
      * These are the names of message headers which aren't allowed
@@ -394,10 +430,17 @@ namespace {
         std::weak_ptr< struct TransactionImpl > currentTransaction;
 
         /**
-         * This is the time at which the connection was last used for a
-         * transaction.
+         * This is the function to call to schedule the connection to
+         * be dropped if it remains inactive for too long past the
+         * current point in time.
          */
-        double lastTransactionTime = 0.0;
+        std::function< void() > setInactivityTimeout;
+
+        /**
+         * This is the token representing the scheduled callback for timing
+         * out the connection for inactivity.
+         */
+        int inactivityCallbackToken = 0;
 
         /**
          * This flag indicates whether or not the connection to the server has
@@ -421,11 +464,10 @@ namespace {
         // Properties
 
         /**
-         * This is the time at which the transaction was started,
-         * or the last data was received for the transaction, whichever
-         * was most recent.
+         * This is the token representing the scheduled callback for timing
+         * out the transaction.
          */
-        double lastReceiveTime = 0.0;
+        int receiveTimeoutToken = 0;
 
         /**
          * This is a utility used to decode the body of the response
@@ -538,7 +580,9 @@ namespace {
                     connectionState->connection->Break(false);
                 }
                 connectionState->currentTransaction.reset();
-                connectionState->lastTransactionTime = now;
+                if (connectionState->setInactivityTimeout != nullptr) {
+                    connectionState->setInactivityTimeout();
+                }
             }
             stateChange.notify_all();
             auto completionDelegateCopy = completionDelegate;
@@ -570,7 +614,6 @@ namespace {
             if (complete) {
                 return false;
             }
-            lastReceiveTime = now;
             reassemblyBuffer += std::string(data.begin(), data.end());
             const auto charactersAccepted = ParseResponseImpl(
                 response,
@@ -664,51 +707,6 @@ namespace {
         // Public Methods
     public:
         /**
-         * This method marks as broken and removes from the connection pool any
-         * connections whose last transaction time is before the given cutoff
-         * time.
-         *
-         * @param[in] cutoff
-         *     This is the time to compare to the last transaction times of
-         *     connections to select the connections to drop.
-         *
-         * @return
-         *     The set of connections removed from the connection pool
-         *     is returned.
-         */
-        std::set< std::shared_ptr< ClientConnectionState > > DropInactive(double cutoff) {
-            std::lock_guard< decltype(mutex) > poolLock(mutex);
-            std::set< std::shared_ptr< ClientConnectionState > > inactiveConnections;
-            for (
-                auto connectionsEntry = connections.begin();
-                connectionsEntry != connections.end();
-            ) {
-                for (
-                    auto connection = connectionsEntry->second.begin();
-                    connection != connectionsEntry->second.end();
-                ) {
-                    std::lock_guard< decltype((*connection)->mutex) > connectionLock((*connection)->mutex);
-                    if (
-                        ((*connection)->currentTransaction.lock() == nullptr)
-                        && ((*connection)->lastTransactionTime <= cutoff)
-                    ) {
-                        (*connection)->broken = true;
-                        (void)inactiveConnections.insert(*connection);
-                        connection = connectionsEntry->second.erase(connection);
-                    } else {
-                        ++connection;
-                    }
-                }
-                if (connectionsEntry->second.empty()) {
-                    connectionsEntry = connections.erase(connectionsEntry);
-                } else {
-                    ++connectionsEntry;
-                }
-            }
-            return inactiveConnections;
-        }
-
-        /**
          * This method attempts to find a connection in the pool that isn't
          * broken and doesn't have any transaction using it.  If one is found,
          * the given transaction is assigned to it, and the connection is
@@ -725,6 +723,10 @@ namespace {
          * @param[in] transactionTime
          *     This is the time at which the transaction began.
          *
+         * @param[in] scheduler
+         *     This is used to schedule work to be done without having to
+         *     poll the timekeeper.
+         *
          * @return
          *     If the given transaction was successfully assigned to a
          *     connection, the connection is returned.
@@ -736,7 +738,8 @@ namespace {
         std::shared_ptr< ClientConnectionState > AttachTransaction(
             const std::string& serverId,
             std::shared_ptr< TransactionImpl > transaction,
-            double transactionTime
+            double transactionTime,
+            Timekeeping::Scheduler& scheduler
         ) {
             std::lock_guard< decltype(mutex) > poolLock(mutex);
             const auto connectionsEntry = connections.find(serverId);
@@ -747,8 +750,11 @@ namespace {
                         !connection->broken
                         && (connection->currentTransaction.lock() == nullptr)
                     ) {
+                        if (connection->inactivityCallbackToken != 0) {
+                            scheduler.Cancel(connection->inactivityCallbackToken);
+                            connection->inactivityCallbackToken = 0;
+                        }
                         connection->currentTransaction = transaction;
-                        connection->lastTransactionTime = transactionTime;
                         return connection;
                     }
                 }
@@ -856,6 +862,12 @@ namespace Http {
         std::shared_ptr< TimeKeeper > timeKeeper;
 
         /**
+         * This is used to schedule work to be done without having to
+         * poll the timekeeper.
+         */
+        std::shared_ptr< Timekeeping::Scheduler > scheduler;
+
+        /**
          * This is the amount of time after a request is made
          * of a server, before the transaction is considered timed out
          * if no part of a response has been received.
@@ -886,32 +898,13 @@ namespace Http {
         std::mutex mutex;
 
         /**
-         * This is used to wake up the worker thread.
-         */
-        std::condition_variable workerWakeCondition;
-
-        /**
-         * This flag indicates whether or not the worker thread should stop.
-         */
-        bool stopWorker = false;
-
-        /**
          * This is the ID to assign to the next transaction.
          */
         unsigned int nextTransactionId = 1;
 
-        /**
-         * This thread performs background housekeeping for the client, such as:
-         * - Drop any persistent connections which have broken.
-         * - Complete any transactions that have timed out.
-         */
-        std::thread worker;
-
         // Lifecycle management
 
-        ~Impl() noexcept {
-            Demobilize();
-        }
+        ~Impl() noexcept = default;
         Impl(const Impl&) = delete;
         Impl(Impl&&) noexcept = delete;
         Impl& operator=(const Impl&) = delete;
@@ -925,32 +918,6 @@ namespace Http {
         Impl()
             : diagnosticsSender("Http::Client")
         {
-        }
-
-        /**
-         * This method should be called when the client is mobilized,
-         * in order to start background housekeeping.
-         */
-        void Mobilize() {
-            if (!worker.joinable()) {
-                stopWorker = false;
-                worker = std::thread(&Impl::Worker, this);
-            }
-        }
-
-        /**
-         * This method should be called when the client is demobilized,
-         * in order to stop background housekeeping.
-         */
-        void Demobilize() {
-            if (worker.joinable()) {
-                {
-                    std::lock_guard< decltype(mutex) > lock(mutex);
-                    stopWorker = true;
-                    workerWakeCondition.notify_all();
-                }
-                worker.join();
-            }
         }
 
         /**
@@ -1054,7 +1021,6 @@ namespace Http {
                 }
             );
             connectionState->currentTransaction = transaction;
-            connectionState->lastTransactionTime = timeKeeper->GetCurrentTime();
             return connectionState;
         }
 
@@ -1071,87 +1037,6 @@ namespace Http {
             activeTransactions[nextTransactionId++] = transaction;
         }
 
-        /**
-         * This method checks all the transactions in the given set to
-         * see if any are completed or should be completed due to timeout.
-         * Any transactions that should be completed due to timeout are
-         * completed.
-         *
-         * @param[in] transactions
-         *     These are the transactions to check.
-         *
-         * @param[in] cutoff
-         *     This is the time to compare to the last receive times of
-         *     transactions to select the transactions that should be
-         *     timed out.
-         *
-         * @return
-         *     The IDs of transactions which have been completed are returned.
-         */
-        static std::set< unsigned int > CheckTransactions(
-            const TransactionCollection& transactions,
-            double cutoff
-        ) {
-            std::set< unsigned int > completedTransactions;
-            for (const auto& transactionsEntry: transactions) {
-                bool isCompleted = false;
-                auto transaction = transactionsEntry.second.lock();
-                if (transaction == nullptr) {
-                    isCompleted = true;
-                } else {
-                    std::unique_lock< decltype(transaction->mutex) > lock(transaction->mutex);
-                    if (transaction->complete) {
-                        isCompleted = true;
-                    } else if (transaction->lastReceiveTime <= cutoff) {
-                        lock.unlock();
-                        (void)transaction->Complete(
-                            Transaction::State::Timeout,
-                            transaction->lastReceiveTime
-                        );
-                        isCompleted = true;
-                    }
-                }
-                if (isCompleted) {
-                    (void)completedTransactions.insert(transactionsEntry.first);
-                }
-            }
-            return completedTransactions;
-        }
-
-        /**
-         * This thread performs background housekeeping for the client, such as:
-         * - Drop any persistent connections which have broken.
-         * - Complete any transactions that have timed out.
-         */
-        void Worker() {
-            std::unique_lock< decltype(mutex) > lock(mutex);
-            while (!stopWorker) {
-                // Wait one polling period.
-                (void)workerWakeCondition.wait_for(
-                    lock,
-                    std::chrono::milliseconds(CONNECTION_POLLING_PERIOD_MILLISECONDS),
-                    [this]{ return stopWorker; }
-                );
-
-                // Check for completed or timed-out transactions, and remove
-                // any that have completed.
-                TransactionCollection activeTransactionsCopy(activeTransactions);
-                lock.unlock();
-                auto completedTransactionIds = CheckTransactions(
-                    activeTransactionsCopy,
-                    timeKeeper->GetCurrentTime() - requestTimeoutSeconds
-                );
-                lock.lock();
-                for (const auto completedTransactionId: completedTransactionIds) {
-                    (void)activeTransactions.erase(completedTransactionId);
-                }
-
-                // Check for inactive persistent connections.
-                const auto droppedConnections = persistentConnections->DropInactive(
-                    timeKeeper->GetCurrentTime() - inactivityInterval
-                );
-            }
-        }
     };
 
     Client::~Client() noexcept {
@@ -1171,12 +1056,15 @@ namespace Http {
         impl_->timeKeeper = deps.timeKeeper;
         impl_->requestTimeoutSeconds = deps.requestTimeoutSeconds;
         impl_->inactivityInterval = deps.inactivityInterval;
+        impl_->scheduler.reset(new Timekeeping::Scheduler);
+        impl_->scheduler->SetClock(
+            std::make_shared< ClockWrapper >(impl_->timeKeeper)
+        );
         impl_->mobilized = true;
-        impl_->Mobilize();
     }
 
     void Client::Demobilize() {
-        impl_->Demobilize();
+        impl_->scheduler = nullptr;
         impl_->timeKeeper = nullptr;
         impl_->transport = nullptr;
         impl_->mobilized = false;
@@ -1201,6 +1089,10 @@ namespace Http {
         }
     }
 
+    Timekeeping::Scheduler& Client::GetScheduler() {
+        return *impl_->scheduler;
+    }
+
     SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate Client::SubscribeToDiagnostics(
         SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
         size_t minLevel
@@ -1218,7 +1110,23 @@ namespace Http {
         if (upgradeDelegate != nullptr) {
             persistConnection = true;
         }
-        transaction->lastReceiveTime = impl_->timeKeeper->GetCurrentTime();
+        std::weak_ptr< TransactionImpl > transactionWeak(transaction);
+        const auto timeKeeperCopy = impl_->timeKeeper;
+        transaction->receiveTimeoutToken = impl_->scheduler->Schedule(
+            [
+                transactionWeak,
+                timeKeeperCopy
+            ]{
+                auto transaction = transactionWeak.lock();
+                if (transaction != nullptr) {
+                    (void)transaction->Complete(
+                        Transaction::State::Timeout,
+                        timeKeeperCopy->GetCurrentTime()
+                    );
+                }
+            },
+            impl_->timeKeeper->GetCurrentTime() + impl_->requestTimeoutSeconds
+        );
         const auto& hostNameOrAddress = request.target.GetHost();
         auto port = DEFAULT_HTTP_PORT_NUMBER;
         if (request.target.HasPort()) {
@@ -1233,7 +1141,8 @@ namespace Http {
         auto connectionState = impl_->persistentConnections->AttachTransaction(
             serverId,
             transaction,
-            now
+            now,
+            *impl_->scheduler
         );
         if (connectionState == nullptr) {
             connectionState = impl_->NewConnection(
@@ -1249,6 +1158,45 @@ namespace Http {
             && persistConnection
         ) {
             impl_->persistentConnections->AddConnection(serverId, connectionState);
+            std::weak_ptr< Impl > implWeak(impl_);
+            std::weak_ptr< ClientConnectionState > connectionStateWeak(connectionState);
+            connectionState->setInactivityTimeout = [
+                implWeak,
+                serverId,
+                connectionStateWeak
+            ](){
+                auto impl = implWeak.lock();
+                auto connectionState = connectionStateWeak.lock();
+                if (
+                    (impl == nullptr)
+                    || (connectionState == nullptr)
+                ) {
+                    return;
+                }
+                connectionState->inactivityCallbackToken = impl->scheduler->Schedule(
+                    [
+                        implWeak,
+                        serverId,
+                        connectionStateWeak
+                    ]{
+                        auto impl = implWeak.lock();
+                        auto connectionState = connectionStateWeak.lock();
+                        if (
+                            (impl == nullptr)
+                            || (connectionState == nullptr)
+                        ) {
+                            return;
+                        }
+                        std::lock_guard< decltype(connectionState->mutex) > connectionLock(connectionState->mutex);
+                        if (connectionState->currentTransaction.lock() != nullptr) {
+                            return;
+                        }
+                        connectionState->broken = true;
+                        impl->persistentConnections->DropConnection(serverId, connectionState);
+                    },
+                    impl->timeKeeper->GetCurrentTime() + impl->inactivityInterval
+                );
+            };
         } else {
             impl_->persistentConnections->DropConnection(serverId, connectionState);
         }

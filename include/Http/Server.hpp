@@ -149,6 +149,9 @@ namespace Http {
 
         /**
          * Return access to the scheduler used by the web server.
+         *
+         * @return
+         *     Access to the scheduler used by the web server is returned.
          */
         Timekeeping::Scheduler& GetScheduler();
 

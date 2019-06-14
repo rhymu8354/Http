@@ -1218,6 +1218,7 @@ TEST_F(ClientTests, ResponseTimeoutPersistentConnectionNotReused) {
     deps.timeKeeper = timeKeeper;
     deps.requestTimeoutSeconds = 1.0;
     client.Mobilize(deps);
+    auto& scheduler = client.GetScheduler();
 
     // Have the client make a simple request, using a persistent connection.
     Http::Request outgoingRequest;
@@ -1231,6 +1232,7 @@ TEST_F(ClientTests, ResponseTimeoutPersistentConnectionNotReused) {
 
     // Allow enough time to pass such that the request will time out.
     timeKeeper->currentTime = 1.5;
+    scheduler.WakeUp();
 
     // Wait for client transaction to complete, expecting a timeout.
     ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
@@ -1262,6 +1264,7 @@ TEST_F(ClientTests, ResponseTimeoutNotPersistentConnection) {
     deps.timeKeeper = timeKeeper;
     deps.requestTimeoutSeconds = 1.0;
     client.Mobilize(deps);
+    auto& scheduler = client.GetScheduler();
 
     // Have the client make a simple request, not using a persistent
     // connection.
@@ -1276,6 +1279,7 @@ TEST_F(ClientTests, ResponseTimeoutNotPersistentConnection) {
 
     // Allow enough time to pass such that the request will time out.
     timeKeeper->currentTime = 1.5;
+    scheduler.WakeUp();
 
     // Wait for client transaction to complete, expecting a timeout.
     ASSERT_TRUE(transaction->AwaitCompletion(std::chrono::milliseconds(100)));
@@ -1640,6 +1644,7 @@ TEST_F(ClientTests, PersistentConnectionReleasedAfterInactivityPeriod) {
     deps.requestTimeoutSeconds = 10.0;
     deps.inactivityInterval = 60.0;
     client.Mobilize(deps);
+    auto& scheduler = client.GetScheduler();
 
     // Have the client make a simple request with a persistent connection.
     Http::Request outgoingRequest;
@@ -1650,6 +1655,7 @@ TEST_F(ClientTests, PersistentConnectionReleasedAfterInactivityPeriod) {
 
     // Advance the time a little.
     timeKeeper->currentTime += 5.0;
+    scheduler.WakeUp();
 
     // Provide a response back to the client, in one piece.
     Http::Response response;
@@ -1688,6 +1694,7 @@ TEST_F(ClientTests, PersistentConnectionReleasedAfterInactivityPeriod) {
 
     // Advance the time past one inactivity interval.
     timeKeeper->currentTime += deps.inactivityInterval;
+    scheduler.WakeUp();
 
     // Verify the connection is finally released.
     {

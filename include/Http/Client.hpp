@@ -24,6 +24,7 @@
 #include <stddef.h>
 #include <string>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
+#include <Timekeeping/Scheduler.hpp>
 
 namespace Http {
 
@@ -162,6 +163,26 @@ namespace Http {
             size_t& messageEnd
         );
 
+        // --------------------------------------------------------------------
+        // All methods in this section are for testing only and should not
+        // be used outside of the test framework.
+        // ⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇⬇
+        // --------------------------------------------------------------------
+
+        /**
+         * Return access to the scheduler used by the web server.
+         *
+         * @return
+         *     Access to the scheduler used by the web server is returned.
+         */
+        Timekeeping::Scheduler& GetScheduler();
+
+        // --------------------------------------------------------------------
+        // ⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆⬆
+        // All methods in this section are for testing only and should not
+        // be used outside of the test framework.
+        // --------------------------------------------------------------------
+
         // IClient
     public:
         virtual SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate SubscribeToDiagnostics(
@@ -186,7 +207,7 @@ namespace Http {
         /**
          * This contains the private properties of the instance.
          */
-        std::unique_ptr< Impl > impl_;
+        std::shared_ptr< Impl > impl_;
     };
 
     /**
