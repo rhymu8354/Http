@@ -126,12 +126,6 @@ namespace {
     constexpr double DEFAULT_TOO_MANY_CONNECTS_MEASUREMENT_PERIOD = 1.0;
 
     /**
-     * This is the number of milliseconds to wait between rounds of polling
-     * connections to check for timeouts.
-     */
-    constexpr unsigned int TIMER_POLLING_PERIOD_MILLISECONDS = 50;
-
-    /**
      * This is used to indicate how to handle the server's end
      * of a connection.
      */
