@@ -356,7 +356,13 @@ namespace {
          * This flag indicates whether or not the server has closed
          * its end of the connection.
          */
-        bool closed = false;
+        bool serverClosed = false;
+
+        /**
+         * This flag indicates whether or not the client has closed
+         * its end of the connection.
+         */
+        bool clientClosed = false;
     };
 
     /**
@@ -1055,7 +1061,7 @@ namespace Http {
             }
             if (closeRequested) {
                 connectionState->acceptingRequests = false;
-                connectionState->closed = true;
+                connectionState->serverClosed = true;
                 OnConnectionBroken(
                     connectionState,
                     "closed by server",
@@ -1226,6 +1232,9 @@ namespace Http {
                         ]{
                             auto connectionState = connectionStateWeak.lock();
                             if (connectionState == nullptr) {
+                                return;
+                            }
+                            if (connectionState->clientClosed) {
                                 return;
                             }
                             OnConnectionBroken(
@@ -1590,13 +1599,17 @@ namespace Http {
                         return;
                     }
                     std::lock_guard< decltype(mutex) > lock(mutex);
-                    if (connectionState->closed) {
-                        OnConnectionBroken(
-                            connectionState,
-                            "peer end closed",
-                            ServerConnectionEndHandling::CloseAbruptly
-                        );
+                    if (connectionState->serverClosed) {
+                        if (!connectionState->clientClosed) {
+                            connectionState->clientClosed = true;
+                            OnConnectionBroken(
+                                connectionState,
+                                "peer end closed",
+                                ServerConnectionEndHandling::CloseAbruptly
+                            );
+                        }
                     } else {
+                        connectionState->serverClosed = true;
                         OnConnectionBroken(
                             connectionState,
                             "broken by peer",
