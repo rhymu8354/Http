@@ -2266,6 +2266,10 @@ TEST_F(ServerTests, BadRequestWhileOnProbationExtendsBan) {
             request.end()
         )
     );
+    ASSERT_TRUE(connection->AwaitBroken());
+    connection->broken = false;
+    connection->brokenDelegate(true);
+    ASSERT_TRUE(connection->AwaitBroken());
     connection = nullptr;
 
     // Advance time until the client is on probation.
