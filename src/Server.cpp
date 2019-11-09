@@ -23,7 +23,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string>
-#include <SystemAbstractions/StringExtensions.hpp>
+#include <StringExtensions/StringExtensions.hpp>
 #include <thread>
 
 namespace {
@@ -213,7 +213,7 @@ namespace {
      *     look like an integer, is returned.
      */
     std::string FormatDoubleAsDistinctlyNotInteger(double number) {
-        auto s = SystemAbstractions::sprintf("%.15lg", number);
+        auto s = StringExtensions::sprintf("%.15lg", number);
         if (s.find_first_not_of("0123456789-") == std::string::npos) {
             s += ".0";
         }
@@ -684,7 +684,7 @@ namespace Http {
                 if (item != newItem) {
                     diagnosticsSender.SendDiagnosticInformationFormatted(
                         0,
-                        SystemAbstractions::sprintf(
+                        StringExtensions::sprintf(
                             "%s changed from %s to %s",
                             description,
                             printFormat,
@@ -863,16 +863,16 @@ namespace Http {
                 if (request.headers.HasHeader("Content-Length")) {
                     intmax_t contentLengthAsInt;
                     switch (
-                        SystemAbstractions::ToInteger(
+                        StringExtensions::ToInteger(
                             request.headers.GetHeaderValue("Content-Length"),
                             contentLengthAsInt
                         )
                     ) {
-                        case SystemAbstractions::ToIntegerResult::NotANumber: {
+                        case StringExtensions::ToIntegerResult::NotANumber: {
                             request.state = Request::State::Error;
                         } return messageEnd;
 
-                        case SystemAbstractions::ToIntegerResult::Overflow: {
+                        case StringExtensions::ToIntegerResult::Overflow: {
                             request.state = Request::State::Error;
                             request.responseStatusCode = 413;
                             request.responseReasonPhrase = "Payload Too Large";
@@ -1022,7 +1022,7 @@ namespace Http {
             ) {
                 response.headers.AddHeader(
                     "Content-Length",
-                    SystemAbstractions::sprintf("%zu", response.body.length())
+                    StringExtensions::sprintf("%zu", response.body.length())
                 );
             }
             const auto responseText = response.Generate();
@@ -1050,7 +1050,7 @@ namespace Http {
                 const auto clientAddress = connectionState->connection->GetPeerAddress();
                 BanHammer(
                     clientAddress,
-                    SystemAbstractions::sprintf(
+                    StringExtensions::sprintf(
                         "Bad HTTP: %u %s",
                         response.statusCode,
                         response.reasonPhrase.c_str()
@@ -1169,12 +1169,12 @@ namespace Http {
                 target.c_str(),
                 (
                     request.headers.HasHeader("Content-Type")
-                    ? SystemAbstractions::sprintf(
+                    ? StringExtensions::sprintf(
                         "%s:%zu",
                         request.headers.GetHeaderValue("Content-Type").c_str(),
                         request.body.length()
                     ).c_str()
-                    : SystemAbstractions::sprintf(
+                    : StringExtensions::sprintf(
                         "%zu",
                         request.body.length()
                     ).c_str()
@@ -1183,12 +1183,12 @@ namespace Http {
                 response.statusCode,
                 (
                     response.headers.HasHeader("Content-Type")
-                    ? SystemAbstractions::sprintf(
+                    ? StringExtensions::sprintf(
                         "%s:%zu",
                         response.headers.GetHeaderValue("Content-Type").c_str(),
                         response.body.length()
                     ).c_str()
-                    : SystemAbstractions::sprintf(
+                    : StringExtensions::sprintf(
                         "%zu",
                         response.body.length()
                     ).c_str()
@@ -1370,7 +1370,7 @@ namespace Http {
                                 response.body = Deflate(response.body, codingEntry->second);
                                 response.headers.SetHeader(
                                     "Content-Length",
-                                    SystemAbstractions::sprintf("%zu", response.body.size())
+                                    StringExtensions::sprintf("%zu", response.body.size())
                                 );
                             }
                         }
@@ -1636,12 +1636,12 @@ namespace Http {
         : impl_(new Impl)
     {
         impl_->server = this;
-        impl_->configuration["MaxMessageSize"] = SystemAbstractions::sprintf("%zu", impl_->maxMessageSize);
-        impl_->configuration["HeaderLineLimit"] = SystemAbstractions::sprintf("%zu", impl_->headerLineLimit);
-        impl_->configuration["Port"] = SystemAbstractions::sprintf("%" PRIu16, impl_->port);
+        impl_->configuration["MaxMessageSize"] = StringExtensions::sprintf("%zu", impl_->maxMessageSize);
+        impl_->configuration["HeaderLineLimit"] = StringExtensions::sprintf("%zu", impl_->headerLineLimit);
+        impl_->configuration["Port"] = StringExtensions::sprintf("%" PRIu16, impl_->port);
         impl_->configuration["RequestTimeout"] = FormatDoubleAsDistinctlyNotInteger(impl_->requestTimeout);
         impl_->configuration["IdleTimeout"] = FormatDoubleAsDistinctlyNotInteger(impl_->idleTimeout);
-        impl_->configuration["BadRequestReportBytes"] = SystemAbstractions::sprintf("%zu", impl_->badRequestReportBytes);
+        impl_->configuration["BadRequestReportBytes"] = StringExtensions::sprintf("%zu", impl_->badRequestReportBytes);
         impl_->configuration["InitialBanPeriod"] = FormatDoubleAsDistinctlyNotInteger(impl_->initialBanPeriod);
         impl_->configuration["ProbationPeriod"] = FormatDoubleAsDistinctlyNotInteger(impl_->probationPeriod);
         impl_->configuration["TooManyRequestsThreshold"] = FormatDoubleAsDistinctlyNotInteger(impl_->tooManyRequestsThreshold);
@@ -1671,7 +1671,7 @@ namespace Http {
             impl_->transport = nullptr;
             return false;
         }
-        impl_->configuration["Port"] = SystemAbstractions::sprintf("%" PRIu16, impl_->port);
+        impl_->configuration["Port"] = StringExtensions::sprintf("%" PRIu16, impl_->port);
         impl_->timeKeeper = deps.timeKeeper;
         impl_->scheduler.reset(new Timekeeping::Scheduler);
         impl_->scheduler->SetClock(

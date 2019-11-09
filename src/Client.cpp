@@ -23,8 +23,8 @@
 #include <set>
 #include <string>
 #include <sstream>
+#include <StringExtensions/StringExtensions.hpp>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
-#include <SystemAbstractions/StringExtensions.hpp>
 #include <thread>
 #include <Timekeeping/Scheduler.hpp>
 
@@ -171,13 +171,13 @@ namespace {
         }
         intmax_t statusCodeAsInt;
         if (
-            SystemAbstractions::ToInteger(
+            StringExtensions::ToInteger(
                 statusLine.substr(
                     protocolDelimiter + 1,
                     statusCodeDelimiter - protocolDelimiter - 1
                 ),
                 statusCodeAsInt
-            ) != SystemAbstractions::ToIntegerResult::Success
+            ) != StringExtensions::ToIntegerResult::Success
         ) {
             return false;
         }
@@ -283,10 +283,10 @@ namespace {
             if (response.headers.HasHeader("Content-Length")) {
                 intmax_t contentLengthAsInt;
                 if (
-                    SystemAbstractions::ToInteger(
+                    StringExtensions::ToInteger(
                         response.headers.GetHeaderValue("Content-Length"),
                         contentLengthAsInt
-                    ) != SystemAbstractions::ToIntegerResult::Success
+                    ) != StringExtensions::ToIntegerResult::Success
                 ) {
                     response.state = Http::Response::State::Error;
                     return messageEnd;
@@ -317,7 +317,7 @@ namespace {
                         }
                         response.headers.SetHeader(
                             "Content-Length",
-                            SystemAbstractions::sprintf("%zu", response.body.length())
+                            StringExtensions::sprintf("%zu", response.body.length())
                         );
                         auto transferCodings = response.headers.GetHeaderTokens("Transfer-Encoding");
                         const auto chunkedToken = std::find(
@@ -331,7 +331,7 @@ namespace {
                         } else {
                             response.headers.SetHeader(
                                 "Transfer-Encoding",
-                                SystemAbstractions::Join(transferCodings, " ")
+                                StringExtensions::Join(transferCodings, " ")
                             );
                         }
                         response.headers.RemoveHeader("Trailer");
@@ -382,7 +382,7 @@ namespace {
                             response.body = std::move(decodedBody);
                             response.headers.SetHeader(
                                 "Content-Length",
-                                SystemAbstractions::sprintf("%zu", response.body.size())
+                                StringExtensions::sprintf("%zu", response.body.size())
                             );
                         } else {
                             response.state = Http::Response::State::Error;
@@ -647,7 +647,7 @@ namespace {
             if (response.IsCompleteOrError(false)) {
                 response.headers.SetHeader(
                     "Content-Length",
-                    SystemAbstractions::sprintf("%zu", response.body.length())
+                    StringExtensions::sprintf("%zu", response.body.length())
                 );
                 endState = State::Completed;
             } else {
@@ -1132,7 +1132,7 @@ namespace Http {
         if (request.target.HasPort()) {
             port = request.target.GetPort();
         }
-        const auto serverId = SystemAbstractions::sprintf(
+        const auto serverId = StringExtensions::sprintf(
             "%s:%" PRIu16,
             hostNameOrAddress.c_str(),
             port

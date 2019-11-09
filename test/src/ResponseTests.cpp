@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 #include <Http/Response.hpp>
-#include <SystemAbstractions/StringExtensions.hpp>
+#include <StringExtensions/StringExtensions.hpp>
 
 TEST(ResponseTests, IsCompleteOrError) {
     Http::Response response;
@@ -42,9 +42,9 @@ TEST(ResponseTests, GenerateGetResponse) {
     response.headers.AddHeader("Accept-Ranges", "bytes");
     response.headers.AddHeader("Content-Type", "text/plain");
     response.body = "Hello World! My payload includes a trailing CRLF.\r\n";
-    response.headers.AddHeader("Content-Length", SystemAbstractions::sprintf("%zu", response.body.size()));
+    response.headers.AddHeader("Content-Length", StringExtensions::sprintf("%zu", response.body.size()));
     ASSERT_EQ(
-        SystemAbstractions::sprintf(
+        StringExtensions::sprintf(
             "HTTP/1.1 200 OK\r\n"
             "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n"
             "Accept-Ranges: bytes\r\n"

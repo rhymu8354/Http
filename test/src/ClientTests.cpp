@@ -18,8 +18,8 @@
 #include <memory>
 #include <mutex>
 #include <stdlib.h>
+#include <StringExtensions/StringExtensions.hpp>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
-#include <SystemAbstractions/StringExtensions.hpp>
 #include <thread>
 
 namespace {
@@ -173,7 +173,7 @@ namespace {
         }
 
         virtual std::string GetPeerId() override {
-            return SystemAbstractions::sprintf("%s:%" PRIu16, hostNameOrIpAddress.c_str(), port);
+            return StringExtensions::sprintf("%s:%" PRIu16, hostNameOrIpAddress.c_str(), port);
         }
 
         virtual void SetDataReceivedDelegate(DataReceivedDelegate newDataReceivedDelegate) override {
@@ -360,7 +360,7 @@ struct ClientTests
                 std::string message
             ){
                 diagnosticMessages.push_back(
-                    SystemAbstractions::sprintf(
+                    StringExtensions::sprintf(
                         "%s[%zu]: %s",
                         senderName.c_str(),
                         level,

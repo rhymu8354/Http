@@ -14,8 +14,8 @@
 #include <Http/Server.hpp>
 #include <inttypes.h>
 #include <limits>
+#include <StringExtensions/StringExtensions.hpp>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
-#include <SystemAbstractions/StringExtensions.hpp>
 #include <thread>
 #include <Uri/Uri.hpp>
 
@@ -281,7 +281,7 @@ struct ServerTests
                 std::string message
             ){
                 diagnosticMessages.push_back(
-                    SystemAbstractions::sprintf(
+                    StringExtensions::sprintf(
                         "%s[%zu]: %s",
                         senderName.c_str(),
                         level,

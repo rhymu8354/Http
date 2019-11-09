@@ -15,7 +15,6 @@
 #include <mutex>
 #include <stdlib.h>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
-#include <SystemAbstractions/StringExtensions.hpp>
 
 /**
  * This is the test fixture for these tests, providing common

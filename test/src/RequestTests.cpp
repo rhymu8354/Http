@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 #include <Http/Request.hpp>
-#include <SystemAbstractions/StringExtensions.hpp>
+#include <StringExtensions/StringExtensions.hpp>
 
 TEST(RequestTests, IsCompleteOrError) {
     Http::Request request;
@@ -47,9 +47,9 @@ TEST(RequestTests, GeneratePutRequest) {
     request.headers.SetHeader("Host", "www.example.com");
     request.headers.SetHeader("Content-Type", "text/plain");
     request.body = "FeelsGoodMan";
-    request.headers.AddHeader("Content-Length", SystemAbstractions::sprintf("%zu", request.body.size()));
+    request.headers.AddHeader("Content-Length", StringExtensions::sprintf("%zu", request.body.size()));
     ASSERT_EQ(
-        SystemAbstractions::sprintf(
+        StringExtensions::sprintf(
             "PUT /foo HTTP/1.1\r\n"
             "Host: www.example.com\r\n"
             "Content-Type: text/plain\r\n"
