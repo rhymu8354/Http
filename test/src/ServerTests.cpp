@@ -313,7 +313,7 @@ TEST_F(ServerTests, DefaultConfiguration) {
     EXPECT_EQ("1.0", server.GetConfigurationItem("TooManyRequestsMeasurementPeriod"));
 }
 
-TEST_F(ServerTests, ParseGetRequest) {
+TEST_F(ServerTests, ParseGetRequest_ASCII_Target_URI) {
     const auto request = server.ParseRequest(
         "GET /hello.txt HTTP/1.1\r\n"
         "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
@@ -325,6 +325,29 @@ TEST_F(ServerTests, ParseGetRequest) {
     ASSERT_EQ(Http::Request::State::Complete, request->state);
     Uri::Uri expectedUri;
     expectedUri.ParseFromString("/hello.txt");
+    ASSERT_EQ("GET", request->method);
+    ASSERT_EQ(expectedUri, request->target);
+    ASSERT_TRUE(request->headers.HasHeader("User-Agent"));
+    ASSERT_EQ("curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3", request->headers.GetHeaderValue("User-Agent"));
+    ASSERT_TRUE(request->headers.HasHeader("Host"));
+    ASSERT_EQ("www.example.com", request->headers.GetHeaderValue("Host"));
+    ASSERT_TRUE(request->headers.HasHeader("Accept-Language"));
+    ASSERT_EQ("en, mi", request->headers.GetHeaderValue("Accept-Language"));
+    ASSERT_TRUE(request->body.empty());
+}
+
+TEST_F(ServerTests, ParseGetRequest_Non_ASCII_Target_URI) {
+    const auto request = server.ParseRequest(
+        "GET /%F0%9F%92%A9.txt HTTP/1.1\r\n"
+        "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n"
+        "Host: www.example.com\r\n"
+        "Accept-Language: en, mi\r\n"
+        "\r\n"
+    );
+    ASSERT_FALSE(request == nullptr);
+    ASSERT_EQ(Http::Request::State::Complete, request->state);
+    Uri::Uri expectedUri;
+    expectedUri.SetPath({"", "💩.txt"});
     ASSERT_EQ("GET", request->method);
     ASSERT_EQ(expectedUri, request->target);
     ASSERT_TRUE(request->headers.HasHeader("User-Agent"));
