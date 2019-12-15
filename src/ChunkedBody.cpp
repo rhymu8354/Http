@@ -229,7 +229,7 @@ namespace Http {
         size_t offset,
         size_t length
     ) {
-        const size_t charactersPreviouslyAccepted = impl_->reassemblyBuffer.tellp();
+        const size_t charactersPreviouslyAccepted = (size_t)impl_->reassemblyBuffer.tellp();
         if (length == 0) {
             length = input.length();
         }
@@ -244,7 +244,7 @@ namespace Http {
                 const auto reassembledInput = impl_->reassemblyBuffer.str();
                 const auto lineEnd = reassembledInput.find(CRLF);
                 if (lineEnd == std::string::npos) {
-                    charactersAccepted += impl_->reassemblyBuffer.tellp();
+                    charactersAccepted += (size_t)impl_->reassemblyBuffer.tellp();
                     break;
                 }
                 const auto lineLength = lineEnd + CRLF.length();
@@ -267,7 +267,7 @@ namespace Http {
                 }
             }
             if (impl_->state == State::ReadingChunkData) {
-                const size_t chunkDataAvailableFromInput = impl_->reassemblyBuffer.tellp();
+                const size_t chunkDataAvailableFromInput = (size_t)impl_->reassemblyBuffer.tellp();
                 const auto chunkDataToCopyFromInput = std::min(
                     chunkDataAvailableFromInput,
                     impl_->currentChunkBytesMissing
@@ -290,7 +290,7 @@ namespace Http {
             }
             if (impl_->state == State::ReadingChunkDelimiter) {
                 if ((size_t)impl_->reassemblyBuffer.tellp() < CRLF.length()) {
-                    charactersAccepted += impl_->reassemblyBuffer.tellp();
+                    charactersAccepted += (size_t)impl_->reassemblyBuffer.tellp();
                     break;
                 }
                 const auto reassembledInput = impl_->reassemblyBuffer.str();

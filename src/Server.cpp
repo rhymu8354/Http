@@ -884,7 +884,7 @@ namespace Http {
                         request.state = Request::State::Error;
                         return messageEnd;
                     }
-                    request.totalBytes += contentLengthAsInt;
+                    request.totalBytes += (size_t)contentLengthAsInt;
                     if (request.totalBytes > maxMessageSize) {
                         request.state = Request::State::Error;
                         request.responseStatusCode = 413;
