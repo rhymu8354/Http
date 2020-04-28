@@ -1214,6 +1214,12 @@ namespace Http {
         if (!persistConnection) {
             request.headers.SetHeader("Connection", "Close");
         }
+        if (!request.body.empty()) {
+            request.headers.SetHeader(
+                "Content-Length",
+                StringExtensions::sprintf("%zu", request.body.length())
+            );
+        }
         const auto originalTarget = request.target;
         request.target = Uri::Uri();
         request.target.SetPath(originalTarget.GetPath());

@@ -11,7 +11,7 @@
 #include <Http/Request.hpp>
 #include <StringExtensions/StringExtensions.hpp>
 
-TEST(RequestTests, IsCompleteOrError) {
+TEST(RequestTests, Is_Complete_Or_Error) {
     Http::Request request;
     request.state = Http::Request::State::Complete;
     EXPECT_TRUE(request.IsCompleteOrError());
@@ -25,7 +25,7 @@ TEST(RequestTests, IsCompleteOrError) {
     EXPECT_FALSE(request.IsCompleteOrError());
 }
 
-TEST(RequestTests, GenerateGetRequest) {
+TEST(RequestTests, Generate_Get_Request) {
     Http::Request request;
     request.method = "GET";
     ASSERT_TRUE(request.target.ParseFromString("/foo"));
@@ -40,7 +40,7 @@ TEST(RequestTests, GenerateGetRequest) {
     );
 }
 
-TEST(RequestTests, GeneratePutRequest) {
+TEST(RequestTests, Generate_Put_Request) {
     Http::Request request;
     request.method = "PUT";
     ASSERT_TRUE(request.target.ParseFromString("/foo"));

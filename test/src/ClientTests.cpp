@@ -1978,3 +1978,49 @@ TEST_F(ClientTests, RequestShouldNotPersistConnectionIfItFailsToConnect) {
     // Expect that a new connection is created from the transport layer.
     ASSERT_TRUE(transport->AwaitConnections(1));
 }
+
+TEST_F(ClientTests, Content_Length_Not_Set_If_Request_Has_No_Body) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a request with a body.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "POST";
+    outgoingRequest.target.ParseFromString("http://PePe@www.example.com:1234/foo?abc#def");
+    const auto transaction = client.Request(outgoingRequest);
+    (void)transport->AwaitConnections(1);
+    const auto& connection = transport->connections[0];
+    (void)connection->AwaitRequests(1);
+    const auto& incomingRequest = connection->requests[0];
+
+    // Expect that the client filled in the content length header.
+    EXPECT_FALSE(incomingRequest.headers.HasHeader("Content-Length"));
+}
+
+
+TEST_F(ClientTests, Content_Length_Set_If_Request_Has_Body) {
+    // Set up the client.
+    const auto transport = std::make_shared< MockTransport >();
+    Http::Client::MobilizationDependencies deps;
+    deps.transport = transport;
+    deps.timeKeeper = std::make_shared< MockTimeKeeper >();
+    client.Mobilize(deps);
+
+    // Have the client make a request with a body.
+    Http::Request outgoingRequest;
+    outgoingRequest.method = "POST";
+    outgoingRequest.target.ParseFromString("http://PePe@www.example.com:1234/foo?abc#def");
+    outgoingRequest.body = "PogChamp";
+    const auto transaction = client.Request(outgoingRequest);
+    (void)transport->AwaitConnections(1);
+    const auto& connection = transport->connections[0];
+    (void)connection->AwaitRequests(1);
+    const auto& incomingRequest = connection->requests[0];
+
+    // Expect that the client filled in the content length header.
+    EXPECT_EQ("8", incomingRequest.headers.GetHeaderValue("Content-Length"));
+}
