@@ -1303,8 +1303,9 @@ namespace Http {
                 auto& client = clients[clientAddress];
                 Response response;
                 if (
-                    (whitelist.find(clientAddress) == whitelist.end())
-                    &&!CheckRequestFrequency(client)
+                    (tooManyRequestsThreshold != 0.0)
+                    && (whitelist.find(clientAddress) == whitelist.end())
+                    && !CheckRequestFrequency(client)
                 ) {
                     response.statusCode = 429;
                     response.reasonPhrase = "Too Many Requests";
