@@ -1887,8 +1887,6 @@ TEST_F(ServerTests, UpgradedConnectionsShouldNotBeTimedOutByServer) {
 
     // Connect to server.
     auto connection = std::make_shared< MockConnection >();
-    bool connectionDestroyed = false;
-    connection->onDestruction = [&connectionDestroyed]{ connectionDestroyed = true; };
     transport->connectionDelegate(connection);
 
     // Send a request that should trigger an upgrade.
@@ -1963,8 +1961,6 @@ TEST_F(ServerTests, UpgradedConnectionShouldNoLongerParseRequests) {
 
     // Connect to server.
     auto connection = std::make_shared< MockConnection >();
-    bool connectionDestroyed = false;
-    connection->onDestruction = [&connectionDestroyed]{ connectionDestroyed = true; };
     transport->connectionDelegate(connection);
 
     // Send a request that should trigger an upgrade, but make the data after
