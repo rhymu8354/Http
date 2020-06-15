@@ -547,10 +547,10 @@ namespace Http {
         std::map< std::string, ClientDossier > clients;
 
         /**
-         * This holds the addresses of clients that have been "whitelisted",
+         * This holds the addresses of clients that have been "acceptlisted",
          * or are immune to bans and not checked against rate limits.
          */
-        std::set< std::string > whitelist;
+        std::set< std::string > acceptlist;
 
         /**
          * These are the currently active client connections.
@@ -1092,7 +1092,7 @@ namespace Http {
          * This method bans the given client from the server.
          *
          * @note
-         *     Whitelisted clients cannot be banned.
+         *     Acceptlisted clients cannot be banned.
          *
          * @param[in] clientAddress
          *     This is the address of the client to ban.
@@ -1105,9 +1105,9 @@ namespace Http {
             const std::string& clientAddress,
             const std::string& reason
         ) {
-            if (whitelist.find(clientAddress) != whitelist.end()) {
+            if (acceptlist.find(clientAddress) != acceptlist.end()) {
                 diagnosticsSender.SendDiagnosticInformationFormatted(
-                    3, "Request: %s would have been banned (%s), but is whitelisted",
+                    3, "Request: %s would have been banned (%s), but is acceptlisted",
                     clientAddress.c_str(),
                     reason.c_str()
                 );
@@ -1304,7 +1304,7 @@ namespace Http {
                 Response response;
                 if (
                     (tooManyRequestsThreshold != 0.0)
-                    && (whitelist.find(clientAddress) == whitelist.end())
+                    && (acceptlist.find(clientAddress) == acceptlist.end())
                     && !CheckRequestFrequency(client)
                 ) {
                     response.statusCode = 429;
@@ -1568,7 +1568,7 @@ namespace Http {
                 }
             }
             if (
-                (whitelist.find(clientAddress) == whitelist.end())
+                (acceptlist.find(clientAddress) == acceptlist.end())
                 && !CheckConnectFrequency(client)
             ) {
                 connection->Break(false);
@@ -1870,19 +1870,19 @@ namespace Http {
         return bans;
     }
 
-    void Server::WhitelistAdd(const std::string& peerAddress) {
+    void Server::AcceptlistAdd(const std::string& peerAddress) {
         std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
-        (void)impl_->whitelist.insert(peerAddress);
+        (void)impl_->acceptlist.insert(peerAddress);
     }
 
-    void Server::WhitelistRemove(const std::string& peerAddress) {
+    void Server::AcceptlistRemove(const std::string& peerAddress) {
         std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
-        (void)impl_->whitelist.erase(peerAddress);
+        (void)impl_->acceptlist.erase(peerAddress);
     }
 
-    std::set< std::string > Server::GetWhitelist() {
+    std::set< std::string > Server::GetAcceptlist() {
         std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
-        return impl_->whitelist;
+        return impl_->acceptlist;
     }
 
 }

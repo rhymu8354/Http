@@ -229,30 +229,30 @@ namespace Http {
         virtual std::set< std::string > GetBans() = 0;
 
         /**
-         * Add the given peer address to the server's whitelist.
+         * Add the given peer address to the server's acceptlist.
          *
          * @param[in] peerAddress
          *     This is the address of the peer to add to the
-         *     server's whitelist.
+         *     server's acceptlist.
          */
-        virtual void WhitelistAdd(const std::string& peerAddress) = 0;
+        virtual void AcceptlistAdd(const std::string& peerAddress) = 0;
 
         /**
-         * Remove the given peer address from the server's whitelist.
+         * Remove the given peer address from the server's acceptlist.
          *
          * @param[in] peerAddress
          *     This is the address of the peer to remove from the
-         *     server's whitelist.
+         *     server's acceptlist.
          */
-        virtual void WhitelistRemove(const std::string& peerAddress) = 0;
+        virtual void AcceptlistRemove(const std::string& peerAddress) = 0;
 
         /**
-         * Return the current server whitelist.
+         * Return the current server acceptlist.
          *
          * @return
-         *     A copy of the server's current whitelist is returned.
+         *     A copy of the server's current acceptlist is returned.
          */
-        virtual std::set< std::string > GetWhitelist() = 0;
+        virtual std::set< std::string > GetAcceptlist() = 0;
     };
 
 }

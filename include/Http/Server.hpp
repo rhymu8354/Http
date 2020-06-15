@@ -186,9 +186,9 @@ namespace Http {
         ) override;
         virtual void Unban(const std::string& peerAddress) override;
         virtual std::set< std::string > GetBans() override;
-        virtual void WhitelistAdd(const std::string& peerAddress) override;
-        virtual void WhitelistRemove(const std::string& peerAddress) override;
-        virtual std::set< std::string > GetWhitelist() override;
+        virtual void AcceptlistAdd(const std::string& peerAddress) override;
+        virtual void AcceptlistRemove(const std::string& peerAddress) override;
+        virtual std::set< std::string > GetAcceptlist() override;
 
         // Private properties
     private:

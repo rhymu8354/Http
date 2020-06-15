@@ -3088,7 +3088,7 @@ TEST_F(ServerTests, ConnectionRateLimit) {
     EXPECT_TRUE(connection5->broken);
 }
 
-TEST_F(ServerTests, WhitelistedClientsAllowedThroughNotBlacklisted) {
+TEST_F(ServerTests, Allowed_Clients_Allowed_Through_Not_Denied) {
     // Arrange
     auto transport = std::make_shared< MockTransport >();
     const auto timeKeeper = std::make_shared< MockTimeKeeper >();
@@ -3100,14 +3100,14 @@ TEST_F(ServerTests, WhitelistedClientsAllowedThroughNotBlacklisted) {
     EXPECT_EQ(
         std::set< std::string >({
         }),
-        server.GetWhitelist()
+        server.GetAcceptlist()
     );
-    server.WhitelistAdd("admin");
+    server.AcceptlistAdd("admin");
     EXPECT_EQ(
         std::set< std::string >({
             "admin"
         }),
-        server.GetWhitelist()
+        server.GetAcceptlist()
     );
     (void)server.Mobilize(deps);
 
@@ -3120,11 +3120,11 @@ TEST_F(ServerTests, WhitelistedClientsAllowedThroughNotBlacklisted) {
     const auto connection3 = std::make_shared< MockConnection >();
     connection3->peerAddress = "admin";
     transport->connectionDelegate(connection3);
-    server.WhitelistRemove("admin");
+    server.AcceptlistRemove("admin");
     EXPECT_EQ(
         std::set< std::string >({
         }),
-        server.GetWhitelist()
+        server.GetAcceptlist()
     );
     const auto connection4 = std::make_shared< MockConnection >();
     connection4->peerAddress = "admin";
