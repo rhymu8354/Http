@@ -578,7 +578,7 @@ TEST_F(ClientTests, ParseInvalidResponseNoReasonPhrase) {
 TEST_F(ClientTests, ParseInvalidDamagedHeader) {
     size_t messageEnd;
     const std::string rawResponse = (
-        "HTTP/1.1 200\r\n"
+        "HTTP/1.1 200 OK\r\n"
         "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n"
         "Server: Apache\r\n"
         "Last-Modified Wed, 22 Jul 2009 19:15:56 GMT\r\n"
