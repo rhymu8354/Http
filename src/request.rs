@@ -4,7 +4,7 @@ use std::io::Write;
 use super::error::Error;
 use super::CRLF;
 
-fn find_whitespace<T>(message: T) -> Option<usize>
+fn find_crlf<T>(message: T) -> Option<usize>
     where T: AsRef<[u8]>
 {
     let message = message.as_ref();
@@ -170,7 +170,7 @@ impl Request {
         &mut self,
         raw_message: &[u8]
     ) -> Result<(ParseStatusInternal, usize), Error> {
-        match (find_whitespace(raw_message), self.request_line_limit) {
+        match (find_crlf(raw_message), self.request_line_limit) {
             (Some(request_line_end), Some(limit)) if request_line_end > limit => {
                 Err(Error::RequestLineTooLong(raw_message[..limit].to_vec()))
             },
