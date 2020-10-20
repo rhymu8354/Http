@@ -1,0 +1,21 @@
+[package]
+name = "rhymuweb"
+version = "1.0.0"
+description = "Implementation of Hypertext Transfer Protocol (HTTP)"
+authors = ["Richard Walters <rwalters@digitalstirling.com>"]
+edition = "2018"
+license-file = "LICENSE.txt"
+readme = "README.md"
+categories = ["parser-implementations", "web-programming"]
+keywords = ["http", "parser", "client", "server"]
+repository = "https://github.com/rhymu8354/Http.git"
+exclude = [
+    "*.hpp",
+    "*.cpp",
+    "CMakeLists.txt"
+]
+
+[dependencies]
+rhymessage = "1.1"
+rhymuri = "1.0"
+thiserror = "1.0"
