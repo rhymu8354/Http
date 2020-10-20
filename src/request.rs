@@ -3,31 +3,12 @@ use rhymuri::Uri;
 use std::io::Write;
 use super::error::Error;
 use super::CRLF;
-
-fn find_crlf<T>(message: T) -> Option<usize>
-    where T: AsRef<[u8]>
-{
-    let message = message.as_ref();
-    match message.len() {
-        0 | 1 => None,
-        len => {
-            for i in 0..len-1 {
-                if
-                    message[i] == b'\r'
-                    && message[i+1] == b'\n'
-                {
-                    return Some(i)
-                }
-            }
-            None
-        }
-    }
-}
+use super::find_crlf;
 
 fn parse_request_line(request_line: &str) -> Result<(&str, Uri), Error> {
     // Parse the method.
     let method_delimiter = request_line.find(' ')
-        .ok_or_else(|| Error::RequestLineInvalid(request_line.into()))?;
+        .ok_or_else(|| Error::RequestLineNoMethodDelimiter(request_line.into()))?;
     let method = &request_line[0..method_delimiter];
     if method.is_empty() {
         return Err(Error::RequestLineNoMethodOrExtraWhitespace(request_line.into()));
@@ -36,7 +17,7 @@ fn parse_request_line(request_line: &str) -> Result<(&str, Uri), Error> {
     // Parse the target URI.
     let request_line_at_target = &request_line[method_delimiter+1..];
     let target_delimiter = request_line_at_target.find(' ')
-        .ok_or_else(|| Error::RequestLineInvalid(request_line.into()))?;
+        .ok_or_else(|| Error::RequestLineNoTargetDelimiter(request_line.into()))?;
     if target_delimiter == 0 {
         return Err(Error::RequestLineNoTargetOrExtraWhitespace(request_line.into()));
     }
@@ -177,7 +158,7 @@ impl Request {
             (Some(request_line_end), _) => {
                 let request_line = &raw_message[0..request_line_end];
                 let request_line = std::str::from_utf8(request_line)
-                    .map_err(|_| Error::RequestLineInvalid(request_line.to_vec()))?;
+                    .map_err(|_| Error::RequestLineNotValidText(request_line.to_vec()))?;
                 let consumed = request_line_end + CRLF.len();
                 self.count_bytes(consumed)?;
                 self.state = RequestState::Headers;
@@ -400,7 +381,23 @@ mod tests {
     }
 
     #[test]
-    fn parse_invalid_request_no_method() {
+    fn parse_invalid_request_no_method_delimiter() {
+        let raw_request = concat!(
+            "foobar\r\n",
+            "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n",
+            "Host: www.example.com\r\n",
+            "Accept-Language: en, mi\r\n",
+            "\r\n",
+        );
+        let mut request = Request::new();
+        assert_eq!(
+            Err(Error::RequestLineNoMethodDelimiter("foobar".into())),
+            request.parse(raw_request)
+        );
+    }
+
+    #[test]
+    fn parse_invalid_request_empty_method() {
         let raw_request = concat!(
             " /hello.txt HTTP/1.1\r\n",
             "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n",
@@ -410,7 +407,7 @@ mod tests {
         );
         let mut request = Request::new();
         assert_eq!(
-            Err(Error::RequestLineNoMethodOrExtraWhitespace(b" /hello.txt HTTP/1.1".to_vec())),
+            Err(Error::RequestLineNoMethodOrExtraWhitespace(" /hello.txt HTTP/1.1".into())),
             request.parse(raw_request)
         );
     }
@@ -426,7 +423,7 @@ mod tests {
         );
         let mut request = Request::new();
         assert_eq!(
-            Err(Error::RequestLineNoTargetOrExtraWhitespace(b"GET  HTTP/1.1".to_vec())),
+            Err(Error::RequestLineNoTargetOrExtraWhitespace("GET  HTTP/1.1".into())),
             request.parse(raw_request)
         );
     }
@@ -442,7 +439,7 @@ mod tests {
         );
         let mut request = Request::new();
         assert_eq!(
-            Err(Error::RequestLineInvalid(b"GET /hello.txt".to_vec())),
+            Err(Error::RequestLineNoTargetDelimiter("GET /hello.txt".into())),
             request.parse(raw_request)
         );
     }
@@ -458,7 +455,7 @@ mod tests {
         );
         let mut request = Request::new();
         assert_eq!(
-            Err(Error::RequestLineProtocol(b"GET /hello.txt ".to_vec())),
+            Err(Error::RequestLineProtocol("GET /hello.txt ".into())),
             request.parse(raw_request)
         );
     }
@@ -474,7 +471,7 @@ mod tests {
         );
         let mut request = Request::new();
         assert_eq!(
-            Err(Error::RequestLineProtocol(b"GET /hello.txt FOO".to_vec())),
+            Err(Error::RequestLineProtocol("GET /hello.txt FOO".into())),
             request.parse(raw_request)
         );
     }

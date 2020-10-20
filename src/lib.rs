@@ -19,3 +19,23 @@ pub use crate::response::Response;
 // followed by a line feed (LF), which officially delimits each
 // line of an HTTP request.
 const CRLF: &str = "\r\n";
+
+fn find_crlf<T>(message: T) -> Option<usize>
+    where T: AsRef<[u8]>
+{
+    let message = message.as_ref();
+    match message.len() {
+        0 | 1 => None,
+        len => {
+            for i in 0..len-1 {
+                if
+                    message[i] == b'\r'
+                    && message[i+1] == b'\n'
+                {
+                    return Some(i)
+                }
+            }
+            None
+        }
+    }
+}
