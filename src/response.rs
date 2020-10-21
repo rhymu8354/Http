@@ -60,7 +60,7 @@ impl Response {
         let mut output = Vec::new();
         write!(&mut output, "HTTP/1.1 {} {}\r\n", self.status_code, self.reason_phrase)
             .map_err(|_| Error::StringFormat)?;
-        output.append(&mut self.headers.generate()?);
+        output.append(&mut self.headers.generate().map_err(Error::Headers)?);
         output.extend(&self.body);
         Ok(output)
     }
@@ -139,7 +139,8 @@ impl Response {
         &mut self,
         raw_message: &[u8]
     ) -> Result<(ParseStatusInternal, usize), Error> {
-        let parse_results = self.headers.parse(raw_message)?;
+        let parse_results = self.headers.parse(raw_message)
+            .map_err(Error::Headers)?;
         match parse_results.status {
             rhymessage::ParseStatus::Complete => {
                 if let Some(content_length) = self.headers.header_value("Content-Length") {

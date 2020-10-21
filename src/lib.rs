@@ -7,6 +7,7 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(dead_code)]
 
+mod chunked_body;
 mod error;
 mod request;
 mod response;

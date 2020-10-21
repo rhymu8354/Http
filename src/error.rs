@@ -2,9 +2,22 @@
 /// crate generates.
 #[derive(Debug, Clone, thiserror::Error, PartialEq)]
 pub enum Error {
+    /// The attached bytes did not parse as valid chunk size text.
+    #[error("chunk size line is not valid text")]
+    ChunkSizeLineNotValidText(Vec<u8>),
+
     /// An error occurred with the message headers.
     #[error("Error in headers")]
-    Headers(#[from] rhymessage::Error),
+    Headers(#[source] rhymessage::Error),
+
+    /// A chunk size in the body was invalid.
+    #[error("invalid chunk size value")]
+    InvalidChunkSize(std::num::ParseIntError),
+
+    /// The attached bytes appeared after the end of a chunk
+    /// in the place where a carriage-return and line-feed were expected.
+    #[error("unexpected extra junk at the end of a chunk")]
+    InvalidChunkTerminator(Vec<u8>),
 
     /// The `Content-Length` header value is not valid.
     #[error("invalid Content-Length header value")]
@@ -84,4 +97,8 @@ pub enum Error {
     /// An error occurred during string formatting.
     #[error("error during string format")]
     StringFormat,
+
+    /// An error occurred with the message trailer.
+    #[error("Error in trailer")]
+    Trailer(#[source] rhymessage::Error),
 }

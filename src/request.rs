@@ -126,7 +126,8 @@ impl Request {
         &mut self,
         raw_message: &[u8]
     ) -> Result<(ParseStatusInternal, usize), Error> {
-        let parse_results = self.headers.parse(raw_message)?;
+        let parse_results = self.headers.parse(raw_message)
+            .map_err(Error::Headers)?;
         self.count_bytes(parse_results.consumed)?;
         match parse_results.status {
             rhymessage::ParseStatus::Complete => {
@@ -178,7 +179,7 @@ impl Request {
         let mut output = Vec::new();
         write!(&mut output, "{} {} HTTP/1.1\r\n", self.method, self.target)
             .map_err(|_| Error::StringFormat)?;
-        output.append(&mut self.headers.generate()?);
+        output.append(&mut self.headers.generate().map_err(Error::Headers)?);
         output.extend(&self.body);
         Ok(output)
     }
