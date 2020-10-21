@@ -32,11 +32,11 @@ enum ChunkedBodyState {
     Trailer,
 }
 
-struct ChunkedBody {
-    buffer: Vec<u8>,
+pub struct ChunkedBody {
+    pub buffer: Vec<u8>,
     chunk_bytes_needed: usize,
     state: ChunkedBodyState,
-    trailer: MessageHeaders,
+    pub trailer: MessageHeaders,
 }
 
 impl ChunkedBody {
@@ -44,7 +44,7 @@ impl ChunkedBody {
         &self.buffer
     }
 
-    fn decode<T>(
+    pub fn decode<T>(
         &mut self,
         input: T
     ) -> Result<(DecodeStatus, usize), Error>
@@ -248,7 +248,7 @@ impl ChunkedBody {
         }
     }
 
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self{
             buffer: Vec::new(),
             chunk_bytes_needed: 0,
