@@ -210,6 +210,7 @@ impl Default for Request {
 #[cfg(test)]
 mod tests {
 
+    use rhymessage::Header;
     use super::*;
 
     #[test]
@@ -238,10 +239,10 @@ mod tests {
         request.headers.set_header("Host", "www.example.com");
         request.headers.set_header("Content-Type", "text/plain");
         request.body = "FeelsGoodMan".into();
-        request.headers.add_header(
-            "Content-Length",
-            format!("{}", request.body.len())
-        );
+        request.headers.add_header(Header{
+            name: "Content-Length".into(),
+            value: format!("{}", request.body.len())
+        });
         assert_eq!(
             Ok(format!(
                 concat!(

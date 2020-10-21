@@ -1,4 +1,4 @@
-use rhymessage::MessageHeaders;
+use rhymessage::{Header, MessageHeaders};
 use std::io::Write;
 use super::chunked_body::{ChunkedBody, DecodeStatus as ChunkedBodyDecodeStatus};
 use super::error::Error;
@@ -137,15 +137,8 @@ impl Response {
         match chunked_body.decode(raw_message)? {
             (ChunkedBodyDecodeStatus::Complete, consumed) => {
                 self.body = std::mem::take(&mut chunked_body.buffer);
-                // TODO: We have to clone here for now because I didn't provide
-                // a way to consume the headers into an iterator or take them
-                // out.  In the future, once rhymessage::MessageHeaders is
-                // improved, we can revisit this code and remove the cloning.
-                for header in chunked_body.trailer.headers() {
-                    self.headers.add_header(
-                        header.name.clone(),
-                        header.value.clone()
-                    );
+                for header in chunked_body.trailer {
+                    self.headers.add_header(header);
                 }
 
                 // Now that we've decoded the chunked body, we should remove
@@ -161,10 +154,10 @@ impl Response {
                         transfer_encodings.join(" ")
                     );
                 }
-                self.headers.add_header(
-                    "Content-Length",
-                    self.body.len().to_string()
-                );
+                self.headers.add_header(Header{
+                    name: "Content-Length".into(),
+                    value: self.body.len().to_string()
+                });
                 self.headers.remove_header("Trailer");
                 Ok((
                     ParseStatusInternal::CompleteWhole,
@@ -282,14 +275,23 @@ mod tests {
         let mut response = Response::new();
         response.status_code = 200;
         response.reason_phrase = "OK".into();
-        response.headers.add_header("Date", "Mon, 27 Jul 2009 12:28:53 GMT");
-        response.headers.add_header("Accept-Ranges", "bytes");
-        response.headers.add_header("Content-Type", "text/plain");
+        response.headers.add_header(Header{
+            name: "Date".into(),
+            value: "Mon, 27 Jul 2009 12:28:53 GMT".into()
+        });
+        response.headers.add_header(Header{
+            name: "Accept-Ranges".into(),
+            value: "bytes".into()
+        });
+        response.headers.add_header(Header{
+            name: "Content-Type".into(),
+            value: "text/plain".into()
+        });
         response.body = "Hello World! My payload includes a trailing CRLF.\r\n".into();
-        response.headers.add_header(
-            "Content-Length",
-            format!("{}", response.body.len())
-        );
+        response.headers.add_header(Header{
+            name: "Content-Length".into(),
+            value: format!("{}", response.body.len())
+        });
         assert_eq!(
             Ok(format!(
                 concat!(

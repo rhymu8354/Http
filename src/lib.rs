@@ -24,19 +24,7 @@ const CRLF: &str = "\r\n";
 fn find_crlf<T>(message: T) -> Option<usize>
     where T: AsRef<[u8]>
 {
-    let message = message.as_ref();
-    match message.len() {
-        0 | 1 => None,
-        len => {
-            for i in 0..len-1 {
-                if
-                    message[i] == b'\r'
-                    && message[i+1] == b'\n'
-                {
-                    return Some(i)
-                }
-            }
-            None
-        }
-    }
+    message.as_ref().windows(2)
+        .enumerate()
+        .find_map(|(i, window)| if window == b"\r\n" { Some(i) } else { None })
 }
