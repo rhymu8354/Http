@@ -54,6 +54,17 @@ pub enum ParseStatus {
     Incomplete,
 }
 
+/// This holds the values returned by `Request::parse`.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ParseResults {
+    /// This indicates the state of the parser.
+    pub status: ParseStatus,
+
+    /// This is the number of bytes of input consumed by the last
+    /// `Request::parse` call.
+    pub consumed: usize,
+}
+
 enum ParseStatusInternal {
     CompletePart,
     CompleteWhole,
@@ -198,7 +209,7 @@ impl Request {
     /// ```rust
     /// # extern crate rhymuweb;
     /// use rhymuri::Uri;
-    /// use rhymuweb::{Request, RequestParseStatus};
+    /// use rhymuweb::{Request, RequestParseResults, RequestParseStatus};
     ///
     /// # fn main() -> Result<(), rhymessage::Error> {
     /// let raw_request_body = "say=Hi&to=Mom";
@@ -215,10 +226,10 @@ impl Request {
     /// );
     /// let mut request = Request::new();
     /// assert_eq!(
-    ///     Ok((
-    ///         RequestParseStatus::Complete,
-    ///         raw_request_headers.len() + raw_request_body.len()
-    ///     )),
+    ///     Ok(RequestParseResults{
+    ///         status: RequestParseStatus::Complete,
+    ///         consumed: raw_request_headers.len() + raw_request_body.len()
+    ///     }),
     ///     request.parse(
     ///         raw_request_headers
     ///         + raw_request_body
@@ -287,7 +298,7 @@ impl Request {
     pub fn parse<T>(
         &mut self,
         raw_message: T
-    ) -> Result<(ParseStatus, usize), Error>
+    ) -> Result<ParseResults, Error>
         where T: AsRef<[u8]>
     {
         let raw_message = raw_message.as_ref();
@@ -309,10 +320,16 @@ impl Request {
             match parse_status {
                 ParseStatusInternal::CompletePart => (),
                 ParseStatusInternal::CompleteWhole => {
-                    return Ok((ParseStatus::Complete, total_consumed));
+                    return Ok(ParseResults{
+                        status: ParseStatus::Complete,
+                        consumed: total_consumed
+                    });
                 },
                 ParseStatusInternal::Incomplete => {
-                    return Ok((ParseStatus::Incomplete, total_consumed));
+                    return Ok(ParseResults{
+                        status: ParseStatus::Incomplete,
+                        consumed: total_consumed
+                    });
                 }
             };
         }
@@ -456,7 +473,10 @@ mod tests {
             "\r\n",
         );
         assert_eq!(
-            Ok((ParseStatus::Complete, raw_request.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: raw_request.len()
+            }),
             request.parse(raw_request)
         );
         assert_eq!("GET", request.method);
@@ -490,7 +510,10 @@ mod tests {
             "\r\n",
         );
         assert_eq!(
-            Ok((ParseStatus::Complete, raw_request.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: raw_request.len()
+            }),
             request.parse(raw_request)
         );
         assert_eq!("GET", request.method);
@@ -535,10 +558,10 @@ mod tests {
         );
         let mut request = Request::new();
         assert_eq!(
-            Ok((
-                ParseStatus::Complete,
-                raw_request_headers.len() + raw_request_body.len()
-            )),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: raw_request_headers.len() + raw_request_body.len()
+            }),
             request.parse(
                 raw_request_headers
                 + raw_request_body
@@ -729,7 +752,10 @@ mod tests {
         let mut request = Request::new();
         request.headers.set_line_limit(Some(1001));
         assert_eq!(
-            Ok((ParseStatus::Complete, raw_request.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: raw_request.len()
+            }),
             request.parse(raw_request)
         );
     }
@@ -780,7 +806,10 @@ mod tests {
         );
         let mut request = Request::new();
         assert_eq!(
-            Ok((ParseStatus::Incomplete, raw_request.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Incomplete,
+                consumed: raw_request.len()
+            }),
             request.parse(raw_request)
         );
     }
@@ -795,7 +824,10 @@ mod tests {
             + "Content-Type: application/x-www-form-urlencoded\r\n";
         let mut request = Request::new();
         assert_eq!(
-            Ok((ParseStatus::Incomplete, raw_request_first_part.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Incomplete,
+                consumed: raw_request_first_part.len()
+            }),
             request.parse(raw_request)
         );
     }
@@ -810,7 +842,10 @@ mod tests {
             + "Content-Type: application/x-w";
         let mut request = Request::new();
         assert_eq!(
-            Ok((ParseStatus::Incomplete, raw_request_first_part.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Incomplete,
+                consumed: raw_request_first_part.len()
+            }),
             request.parse(raw_request)
         );
     }
@@ -820,7 +855,10 @@ mod tests {
         let raw_request = "POST / HTTP/1.1\r";
         let mut request = Request::new();
         assert_eq!(
-            Ok((ParseStatus::Incomplete, 0)),
+            Ok(ParseResults{
+                status: ParseStatus::Incomplete,
+                consumed: 0
+            }),
             request.parse(raw_request)
         );
     }
@@ -830,7 +868,10 @@ mod tests {
         let raw_request = "POST / HTTP/1.1\r\n";
         let mut request = Request::new();
         assert_eq!(
-            Ok((ParseStatus::Incomplete, raw_request.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Incomplete,
+                consumed: raw_request.len()
+            }),
             request.parse(raw_request)
         );
     }
@@ -848,7 +889,10 @@ mod tests {
              + "Hello, World!\r\n";
         let mut request = Request::new();
         assert_eq!(
-            Ok((ParseStatus::Complete, raw_request.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: raw_request.len()
+            }),
             request.parse(raw_request_with_extra)
         );
         assert!(request.body.is_empty());
@@ -880,7 +924,10 @@ mod tests {
             "\r\n",
         );
         assert_eq!(
-            Ok((ParseStatus::Complete, small_request.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: small_request.len()
+            }),
             request.parse(small_request)
         );
         request = Request::new();
@@ -912,7 +959,10 @@ mod tests {
             "say=Hi&to=Mom\r\n",
         );
         assert_eq!(
-            Ok((ParseStatus::Complete, small_request.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: small_request.len()
+            }),
             request.parse(small_request)
         );
         request = Request::new();

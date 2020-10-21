@@ -50,8 +50,16 @@ mod request;
 mod response;
 
 pub use crate::error::Error;
-pub use crate::request::{Request, ParseStatus as RequestParseStatus};
-pub use crate::response::{Response, ParseStatus as ResponseParseStatus};
+pub use crate::request::{
+    Request,
+    ParseResults as RequestParseResults,
+    ParseStatus as RequestParseStatus,
+};
+pub use crate::response::{
+    Response,
+    ParseResults as ResponseParseResults,
+    ParseStatus as ResponseParseStatus,
+};
 
 // This is the character sequence corresponding to a carriage return (CR)
 // followed by a line feed (LF), which officially delimits each

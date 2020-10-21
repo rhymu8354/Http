@@ -41,6 +41,7 @@ impl Default for ResponseState {
         Self::StatusLine
     }
 }
+
 /// This enumerates the possible non-error states `Response` can be in
 /// after parsing a bit of input.
 #[derive(Debug, Eq, PartialEq)]
@@ -54,6 +55,17 @@ pub enum ParseStatus {
     /// with the unparsed portion of the previous input string, and adding more
     /// to it.
     Incomplete,
+}
+
+/// This holds the values returned by `Response::parse`.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ParseResults {
+    /// This indicates the state of the parser.
+    pub status: ParseStatus,
+
+    /// This is the number of bytes of input consumed by the last
+    /// `Response::parse` call.
+    pub consumed: usize,
 }
 
 enum ParseStatusInternal {
@@ -188,7 +200,7 @@ impl Response {
     /// ```rust
     /// # extern crate rhymuweb;
     /// use rhymuri::Uri;
-    /// use rhymuweb::{Response, ResponseParseStatus};
+    /// use rhymuweb::{Response, ResponseParseResults, ResponseParseStatus};
     ///
     /// # fn main() -> Result<(), rhymessage::Error> {
     /// let raw_response = concat!(
@@ -215,7 +227,10 @@ impl Response {
     /// );
     /// let mut response = Response::new();
     /// assert_eq!(
-    ///     Ok((ResponseParseStatus::Complete, raw_response.len())),
+    ///     Ok(ResponseParseResults{
+    ///         status: ResponseParseStatus::Complete,
+    ///         consumed: raw_response.len()
+    ///     }),
     ///     response.parse(raw_response)
     /// );
     /// assert_eq!(200, response.status_code);
@@ -299,7 +314,7 @@ impl Response {
     pub fn parse<T>(
         &mut self,
         raw_message: T
-    ) -> Result<(ParseStatus, usize), Error>
+    ) -> Result<ParseResults, Error>
         where T: AsRef<[u8]>
     {
         let raw_message = raw_message.as_ref();
@@ -333,10 +348,16 @@ impl Response {
             match parse_status {
                 ParseStatusInternal::CompletePart => (),
                 ParseStatusInternal::CompleteWhole => {
-                    return Ok((ParseStatus::Complete, total_consumed));
+                    return Ok(ParseResults{
+                        status: ParseStatus::Complete,
+                        consumed: total_consumed
+                    });
                 },
                 ParseStatusInternal::Incomplete => {
-                    return Ok((ParseStatus::Incomplete, total_consumed));
+                    return Ok(ParseResults{
+                        status: ParseStatus::Incomplete,
+                        consumed: total_consumed
+                    });
                 }
             };
         }
@@ -539,7 +560,10 @@ mod tests {
         );
         let mut response = Response::new();
         assert_eq!(
-            Ok((ParseStatus::Complete, raw_response.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: raw_response.len()
+            }),
             response.parse(raw_response)
         );
         assert_eq!(200, response.status_code);
@@ -596,7 +620,10 @@ mod tests {
         );
         let mut response = Response::new();
         assert_eq!(
-            Ok((ParseStatus::Complete, raw_response.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: raw_response.len()
+            }),
             response.parse(raw_response)
         );
         assert_eq!(200, response.status_code);
@@ -650,7 +677,10 @@ mod tests {
         );
         let mut response = Response::new();
         assert_eq!(
-            Ok((ParseStatus::Complete, raw_response.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: raw_response.len()
+            }),
             response.parse(raw_response)
         );
         assert_eq!(
@@ -676,7 +706,10 @@ mod tests {
         );
         let mut response = Response::new();
         assert_eq!(
-            Ok((ParseStatus::Incomplete, raw_response.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Incomplete,
+                consumed: raw_response.len()
+            }),
             response.parse(raw_response)
         );
     }
@@ -693,7 +726,10 @@ mod tests {
             + "ETag: \"34aa387-d-1568eb00\"\r\n";
         let mut response = Response::new();
         assert_eq!(
-            Ok((ParseStatus::Incomplete, raw_response_first_part.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Incomplete,
+                consumed: raw_response_first_part.len()
+            }),
             response.parse(raw_response)
         );
     }
@@ -709,7 +745,10 @@ mod tests {
             + "Last-Modified: Wed, 22 Ju";
         let mut response = Response::new();
         assert_eq!(
-            Ok((ParseStatus::Incomplete, raw_response_first_part.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Incomplete,
+                consumed: raw_response_first_part.len()
+            }),
             response.parse(raw_response)
         );
     }
@@ -719,7 +758,10 @@ mod tests {
         let raw_response = "HTTP/1.1 200 OK\r";
         let mut response = Response::new();
         assert_eq!(
-            Ok((ParseStatus::Incomplete, 0)),
+            Ok(ParseResults{
+                status: ParseStatus::Incomplete,
+                consumed: 0
+            }),
             response.parse(raw_response)
         );
     }
@@ -729,7 +771,10 @@ mod tests {
         let raw_response = "HTTP/1.1 200 OK\r\n";
         let mut response = Response::new();
         assert_eq!(
-            Ok((ParseStatus::Incomplete, raw_response.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Incomplete,
+                consumed: raw_response.len()
+            }),
             response.parse(raw_response)
         );
     }
@@ -806,7 +851,10 @@ mod tests {
         let trailer = "Hello World! My payload includes a trailing CRLF.\r\n";
         let mut response = Response::new();
         assert_eq!(
-            Ok((ParseStatus::Complete, raw_response.len())),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed: raw_response.len()
+            }),
             response.parse(String::from(raw_response) + trailer),
         );
         assert!(response.body.is_empty());
