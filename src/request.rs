@@ -39,9 +39,18 @@ enum RequestState {
     RequestLine,
 }
 
+/// This enumerates the possible non-error states `Request` can be in
+/// after parsing a bit of input.
 #[derive(Debug, Eq, PartialEq)]
 pub enum ParseStatus {
+    /// The request was fully parsed.
     Complete,
+
+    /// The request has not yet been fully parsed.
+    ///
+    /// The user is expected to call `parse` again with more input, starting
+    /// with the unparsed portion of the previous input string, and adding more
+    /// to it.
     Incomplete,
 }
 
@@ -51,14 +60,41 @@ enum ParseStatusInternal {
     Incomplete,
 }
 
+/// This type is used to parse and generate HTTP 1.1 requests.
 pub struct Request {
+    /// This holds the bytes which compose the body of the request.
     pub body: Vec<u8>,
+
+    /// This holds any headers for the request.
     pub headers: MessageHeaders,
+
+    /// If not None, this sets a maximum size, in bytes, for the request as a
+    /// whole.  The [`parse`](#method.parse) function will return a
+    /// [`Error::MessageTooLong`](enum.Error.html#variant.MessageTooLong) error
+    /// if the input exceeds this size.
     pub max_message_size: Option<usize>,
+
+    /// This is the method token in the request, which indicates the request
+    /// method to be performed on the target resource, as defined in [IETF RFC
+    /// 7231 section 4](https://tools.ietf.org/html/rfc7231#section-4).
     pub method: std::borrow::Cow<'static, str>,
+
+    /// If not None, this sets a maximum size, in bytes, for the request line
+    /// part of the request, which is defined in [IETF RFC 7230 section
+    /// 3.1.1](https://tools.ietf.org/html/rfc7230#section-3.1.1).  The
+    /// [`parse`](#method.parse) function will return a
+    /// [`Error::RequestLineTooLong`](enum.Error.html#variant.RequestLineTooLong)
+    /// error if the input going into the request line exceeds this size.
     pub request_line_limit: Option<usize>,
+
     state: RequestState,
+
+    /// This is the target Uniform Resource Identifier (URI) in the request.
+    /// This is contained in the request line and identifies the resource upon
+    /// which to apply the request, as defined in [IETF RFC 7230 section
+    /// 5.3](https://tools.ietf.org/html/rfc7230#section-5.3).
     pub target: Uri,
+
     total_bytes: usize,
 }
 
@@ -73,6 +109,181 @@ impl Request {
         }
     }
 
+    /// Produce the raw bytes form of the request, according to the rules of
+    /// [IETF RFC 7320 section
+    /// 3](https://tools.ietf.org/html/rfc7230#section-3):
+    ///
+    /// * The request line appears first, containing the request method, target
+    ///   URI, and protocol identifier.
+    /// * The request header lines follow the request line.
+    /// * An empty text line follows the header lines.
+    /// * The body, if any, appears last.  Its length is determined either
+    ///   by the "Content-Length" header, if present, or by the transfer
+    ///   coding technique(s) listed in the "Transfer-Encoding" header.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # extern crate rhymuweb;
+    /// use rhymuri::Uri;
+    /// use rhymuweb::Request;
+    ///
+    /// # fn main() -> Result<(), rhymessage::Error> {
+    /// let mut request = Request::new();
+    /// request.method = "GET".into();
+    /// request.target = Uri::parse("/foo").unwrap();
+    /// request.headers.set_header("Host", "www.example.com");
+    /// request.headers.set_header("Content-Type", "text/plain");
+    /// assert_eq!(
+    ///     Ok(concat!(
+    ///         "GET /foo HTTP/1.1\r\n",
+    ///         "Host: www.example.com\r\n",
+    ///         "Content-Type: text/plain\r\n",
+    ///         "\r\n",
+    ///     ).as_bytes()),
+    ///     request.generate().as_deref()
+    /// );
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::Headers`](enum.Error.html#variant.Headers) &ndash; the
+    ///   headers generator is configured with a line limit constraint and one
+    ///   or more headers are too long and cannot be folded to fit within the
+    ///   constraint.
+    /// * [`Error::StringFormat`](enum.Error.html#variant.StringFormat) &ndash;
+    ///   while technically it shouldn't happen, logically this may be returned
+    ///   if one of the internal string formatting functions should fail (which
+    ///   they shouldn't unless something used internally doesn't implement
+    ///   [`Display`](https://doc.rust-lang.org/std/fmt/trait.Display.html)
+    ///   properly.
+    pub fn generate(&self) -> Result<Vec<u8>, Error> {
+        let mut output = Vec::new();
+        write!(&mut output, "{} {} HTTP/1.1\r\n", self.method, self.target)
+            .map_err(|_| Error::StringFormat)?;
+        output.append(&mut self.headers.generate().map_err(Error::Headers)?);
+        output.extend(&self.body);
+        Ok(output)
+    }
+
+    /// Create a new request value with default method (GET), empty target URI,
+    /// no headers or body, and default limit constraints.
+    #[must_use]
+    pub fn new() -> Self {
+        let mut request = Self{
+            body: Vec::new(),
+            headers: MessageHeaders::new(),
+            max_message_size: Some(10_000_000),
+            method: "GET".into(),
+            request_line_limit: Some(1000),
+            state: RequestState::RequestLine,
+            target: Uri::default(),
+            total_bytes: 0,
+        };
+        request.headers.set_line_limit(Some(1000));
+        request
+    }
+
+    /// Feed more bytes into the parser, building the request internally, and
+    /// detecting when the end of the request has been found.
+    ///
+    /// This function may be called multiple times to parse input
+    /// incrementally.  Each call returns an indication of whether or
+    /// not a message was parsed and how many input bytes were consumed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # extern crate rhymuweb;
+    /// use rhymuri::Uri;
+    /// use rhymuweb::{Request, RequestParseStatus};
+    ///
+    /// # fn main() -> Result<(), rhymessage::Error> {
+    /// let raw_request_body = "say=Hi&to=Mom";
+    /// let raw_request_extra = "This is extra junk not part of the request!";
+    /// let raw_request_headers = format!(
+    ///     concat!(
+    ///         "POST / HTTP/1.1\r\n",
+    ///         "Host: foo.com\r\n",
+    ///         "Content-Type: application/x-www-form-urlencoded\r\n",
+    ///         "Content-Length: {}\r\n",
+    ///         "\r\n",
+    ///     ),
+    ///     raw_request_body.len()
+    /// );
+    /// let mut request = Request::new();
+    /// assert_eq!(
+    ///     Ok((
+    ///         RequestParseStatus::Complete,
+    ///         raw_request_headers.len() + raw_request_body.len()
+    ///     )),
+    ///     request.parse(
+    ///         raw_request_headers
+    ///         + raw_request_body
+    ///         + raw_request_extra
+    ///     )
+    /// );
+    /// assert_eq!("POST", request.method);
+    /// assert_eq!("/", request.target.to_string());
+    /// assert!(request.headers.has_header("Content-Type"));
+    /// assert_eq!(
+    ///     Some("application/x-www-form-urlencoded"),
+    ///     request.headers.header_value("Content-Type").as_deref()
+    /// );
+    /// assert!(request.headers.has_header("Host"));
+    /// assert_eq!(
+    ///     Some("foo.com"),
+    ///     request.headers.header_value("Host").as_deref()
+    /// );
+    /// assert!(request.headers.has_header("Content-Length"));
+    /// assert_eq!(
+    ///     Some(format!("{}", raw_request_body.len())),
+    ///     request.headers.header_value("Content-Length")
+    /// );
+    /// assert_eq!(
+    ///     raw_request_body.as_bytes(),
+    ///     request.body
+    /// );
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::RequestLineTooLong`](enum.Error.html#variant.RequestLineTooLong)
+    ///   &ndash; the request line in the request exceeds the maximum size
+    ///   constraint set in the
+    ///   [`request_line_limit`](#structfield.request_line_limit) field
+    /// * [`Error::RequestLineNotValidText`](enum.Error.html#variant.RequestLineNotValidText)
+    ///   &ndash; the request line contained bytes which could not be decoded
+    ///   as valid UTF-8 text
+    /// * [`Error::RequestLineNoMethodDelimiter`](enum.Error.html#variant.RequestLineNoMethodDelimiter)
+    ///   &ndash; the method part of the request line could not be parsed
+    ///   because no space character delimiting the method from the target URI
+    ///   could be found
+    /// * [`Error::RequestLineNoMethodOrExtraWhitespace`](enum.Error.html#variant.RequestLineNoMethodOrExtraWhitespace)
+    ///   &ndash; the method part of the request line is either empty or there
+    ///   is extra whitespace before it
+    /// * [`Error::RequestLineNoTargetDelimiter`](enum.Error.html#variant.RequestLineNoTargetDelimiter)
+    ///   &ndash; the target URI part of the request line could not be parsed
+    ///   because no space character delimiting the target URI from the
+    ///   protocol identifier could be found
+    /// * [`Error::RequestLineNoTargetOrExtraWhitespace`](enum.Error.html#variant.RequestLineNoTargetOrExtraWhitespace)
+    ///   &ndash; the target URI part of the request line is either empty or
+    ///   there is extra whitespace before it
+    /// * [`Error::RequestLineProtocol`](enum.Error.html#variant.RequestLineProtocol)
+    ///   &ndash; the protocol identifier part of the request line is either
+    ///   missing or does not match "HTTP/1.1"
+    /// * [`Error::Headers`](enum.Error.html#variant.Headers) &ndash; an error
+    ///   occurred parsing the request headers
+    /// * [`Error::MessageTooLong`](enum.Error.html#variant.MessageTooLong)
+    ///   &ndash; the request exceeds the maximum size constraint set in the
+    ///   [`max_message_size`](#structfield.max_message_size) field
+    /// * [`Error::InvalidContentLength`](enum.Error.html#variant.InvalidContentLength)
+    ///   &ndash; the value of the "Content-Length" header of the request
+    ///   could not be parsed
     pub fn parse<T>(
         &mut self,
         raw_message: T
@@ -85,7 +296,7 @@ impl Request {
             let raw_message_remainder = &raw_message[total_consumed..];
             let (parse_status, consumed) = match self.state {
                 RequestState::Body(content_length) => {
-                    self.parse_message_for_body(raw_message_remainder, content_length)?
+                    self.parse_message_for_body(raw_message_remainder, content_length)
                 },
                 RequestState::Headers => {
                     self.parse_message_for_headers(raw_message_remainder)?
@@ -111,14 +322,14 @@ impl Request {
         &mut self,
         raw_message: &[u8],
         content_length: usize,
-    ) -> Result<(ParseStatusInternal, usize), Error> {
+    ) -> (ParseStatusInternal, usize) {
         let needed = content_length - self.body.len();
         if raw_message.len() >= needed {
             self.body.extend(&raw_message[..needed]);
-            Ok((ParseStatusInternal::CompleteWhole, needed))
+            (ParseStatusInternal::CompleteWhole, needed)
         } else {
             self.body.extend(raw_message);
-            Ok((ParseStatusInternal::Incomplete, raw_message.len()))
+            (ParseStatusInternal::Incomplete, raw_message.len())
         }
     }
 
@@ -173,31 +384,6 @@ impl Request {
             },
             (None, _) => Ok((ParseStatusInternal::Incomplete, 0)),
         }
-    }
-
-    pub fn generate(&self) -> Result<Vec<u8>, Error> {
-        let mut output = Vec::new();
-        write!(&mut output, "{} {} HTTP/1.1\r\n", self.method, self.target)
-            .map_err(|_| Error::StringFormat)?;
-        output.append(&mut self.headers.generate().map_err(Error::Headers)?);
-        output.extend(&self.body);
-        Ok(output)
-    }
-
-    #[must_use]
-    pub fn new() -> Self {
-        let mut request = Self{
-            body: Vec::new(),
-            headers: MessageHeaders::new(),
-            max_message_size: Some(10_000_000),
-            method: "GET".into(),
-            request_line_limit: Some(1000),
-            state: RequestState::RequestLine,
-            target: Uri::default(),
-            total_bytes: 0,
-        };
-        request.headers.set_line_limit(Some(1000));
-        request
     }
 }
 

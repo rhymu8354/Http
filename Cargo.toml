@@ -4,6 +4,7 @@ version = "1.0.0"
 description = "Implementation of Hypertext Transfer Protocol (HTTP)"
 authors = ["Richard Walters <rwalters@digitalstirling.com>"]
 edition = "2018"
+license = "MIT"
 license-file = "LICENSE.txt"
 readme = "README.md"
 categories = ["parser-implementations", "web-programming"]

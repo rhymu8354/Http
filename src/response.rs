@@ -41,10 +41,18 @@ impl Default for ResponseState {
         Self::StatusLine
     }
 }
-
+/// This enumerates the possible non-error states `Response` can be in
+/// after parsing a bit of input.
 #[derive(Debug, Eq, PartialEq)]
 pub enum ParseStatus {
+    /// The response was fully parsed.
     Complete,
+
+    /// The response has not yet been fully parsed.
+    ///
+    /// The user is expected to call `parse` again with more input, starting
+    /// with the unparsed portion of the previous input string, and adding more
+    /// to it.
     Incomplete,
 }
 
@@ -54,15 +62,98 @@ enum ParseStatusInternal {
     Incomplete,
 }
 
+/// This type is used to parse and generate HTTP 1.1 responses.
 pub struct Response {
+    /// This holds the bytes which compose the body of the response.
     pub body: Vec<u8>,
+
+    /// This holds any headers for the response.
     pub headers: MessageHeaders,
+
+    /// This is the reason phrase in the response, which is a textual
+    /// description associated with the numeric status code.
     pub reason_phrase: std::borrow::Cow<'static, str>,
+
     state: ResponseState,
+
+    /// This is the numeric status code in the response, which describes the
+    /// result of the server's attempt to understand and satisfy the client's
+    /// corresponding request.  It is defined in [IETF RFC 7231 section
+    /// 6](https://tools.ietf.org/html/rfc7231#section-6).
     pub status_code: usize,
 }
 
 impl Response {
+    /// Produce the raw bytes form of the response, according to the rules of
+    /// [IETF RFC 7320 section
+    /// 3](https://tools.ietf.org/html/rfc7230#section-3):
+    ///
+    /// * The status line appears first, containing the protocol identifier,
+    ///   numeric status code, and reason phrase.
+    /// * The response header lines follow the status line.
+    /// * An empty text line follows the header lines.
+    /// * The body, if any, appears last.  Its length is determined by
+    ///   the "Content-Length" header.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # extern crate rhymuweb;
+    /// use rhymessage::Header;
+    /// use rhymuweb::Response;
+    ///
+    /// # fn main() -> Result<(), rhymessage::Error> {
+    /// let mut response = Response::new();
+    /// response.status_code = 200;
+    /// response.reason_phrase = "OK".into();
+    /// response.headers.add_header(Header{
+    ///     name: "Date".into(),
+    ///     value: "Mon, 27 Jul 2009 12:28:53 GMT".into()
+    /// });
+    /// response.headers.add_header(Header{
+    ///     name: "Accept-Ranges".into(),
+    ///     value: "bytes".into()
+    /// });
+    /// response.headers.add_header(Header{
+    ///     name: "Content-Type".into(),
+    ///     value: "text/plain".into()
+    /// });
+    /// response.body = "Hello World! My payload includes a trailing CRLF.\r\n".into();
+    /// response.headers.add_header(Header{
+    ///     name: "Content-Length".into(),
+    ///     value: format!("{}", response.body.len())
+    /// });
+    /// assert_eq!(
+    ///     Ok(format!(
+    ///         concat!(
+    ///             "HTTP/1.1 200 OK\r\n",
+    ///             "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n",
+    ///             "Accept-Ranges: bytes\r\n",
+    ///             "Content-Type: text/plain\r\n",
+    ///             "Content-Length: {}\r\n",
+    ///             "\r\n",
+    ///             "Hello World! My payload includes a trailing CRLF.\r\n",
+    ///         ),
+    ///         response.body.len()
+    ///     ).as_bytes()),
+    ///     response.generate().as_deref()
+    /// );
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::Headers`](enum.Error.html#variant.Headers) &ndash; the
+    ///   headers generator is configured with a line limit constraint and one
+    ///   or more headers are too long and cannot be folded to fit within the
+    ///   constraint.
+    /// * [`Error::StringFormat`](enum.Error.html#variant.StringFormat) &ndash;
+    ///   while technically it shouldn't happen, logically this may be returned
+    ///   if one of the internal string formatting functions should fail (which
+    ///   they shouldn't unless something used internally doesn't implement
+    ///   [`Display`](https://doc.rust-lang.org/std/fmt/trait.Display.html)
+    ///   properly.
     pub fn generate(&self) -> Result<Vec<u8>, Error> {
         let mut output = Vec::new();
         write!(&mut output, "HTTP/1.1 {} {}\r\n", self.status_code, self.reason_phrase)
@@ -72,6 +163,8 @@ impl Response {
         Ok(output)
     }
 
+    /// Create a new response value with default status code (200), reason
+    /// phrase ("OK"), and no headers or body.
     #[must_use]
     pub fn new() -> Self {
         Self{
@@ -83,6 +176,126 @@ impl Response {
         }
     }
 
+    /// Feed more bytes into the parser, building the response internally, and
+    /// detecting when the end of the response has been found.
+    ///
+    /// This function may be called multiple times to parse input
+    /// incrementally.  Each call returns an indication of whether or
+    /// not a message was parsed and how many input bytes were consumed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # extern crate rhymuweb;
+    /// use rhymuri::Uri;
+    /// use rhymuweb::{Response, ResponseParseStatus};
+    ///
+    /// # fn main() -> Result<(), rhymessage::Error> {
+    /// let raw_response = concat!(
+    ///     "HTTP/1.1 200 OK\r\n",
+    ///     "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n",
+    ///     "Server: Apache\r\n",
+    ///     "Last-Modified: Wed, 22 Jul 2009 19:15:56 GMT\r\n",
+    ///     "ETag: \"34aa387-d-1568eb00\"\r\n",
+    ///     "Accept-Ranges: bytes\r\n",
+    ///     "Transfer-Encoding: chunked\r\n",
+    ///     "Vary: Accept-Encoding\r\n",
+    ///     "Content-Type: text/plain\r\n",
+    ///     "Trailer: X-Foo\r\n",
+    ///     "\r\n",
+    ///     "C\r\n",
+    ///     "Hello World!\r\n",
+    ///     "16\r\n",
+    ///     " My payload includes a\r\n",
+    ///     "11\r\n",
+    ///     " trailing CRLF.\r\n\r\n",
+    ///     "0\r\n",
+    ///     "X-Foo: Bar\r\n",
+    ///     "\r\n",
+    /// );
+    /// let mut response = Response::new();
+    /// assert_eq!(
+    ///     Ok((ResponseParseStatus::Complete, raw_response.len())),
+    ///     response.parse(raw_response)
+    /// );
+    /// assert_eq!(200, response.status_code);
+    /// assert_eq!("OK", response.reason_phrase);
+    /// assert!(response.headers.has_header("Date"));
+    /// assert_eq!(
+    ///     Some("Mon, 27 Jul 2009 12:28:53 GMT"),
+    ///     response.headers.header_value("Date").as_deref()
+    /// );
+    /// assert!(response.headers.has_header("Accept-Ranges"));
+    /// assert_eq!(
+    ///     Some("bytes"),
+    ///     response.headers.header_value("Accept-Ranges").as_deref()
+    /// );
+    /// assert!(response.headers.has_header("Content-Type"));
+    /// assert_eq!(
+    ///     Some("text/plain"),
+    ///     response.headers.header_value("Content-Type").as_deref()
+    /// );
+    /// assert_eq!(
+    ///     Some("Bar"),
+    ///     response.headers.header_value("X-Foo").as_deref()
+    /// );
+    /// assert_eq!(
+    ///     Some("51"),
+    ///     response.headers.header_value("Content-Length").as_deref()
+    /// );
+    /// assert_eq!(
+    ///     "Hello World! My payload includes a trailing CRLF.\r\n".as_bytes(),
+    ///     response.body
+    /// );
+    /// assert!(!response.headers.has_header_token("Transfer-Encoding", "chunked"));
+    /// assert!(!response.headers.has_header("Trailer"));
+    /// assert!(!response.headers.has_header("Transfer-Encoding"));
+    /// assert_eq!(
+    ///     "Hello World! My payload includes a trailing CRLF.\r\n".as_bytes(),
+    ///     response.body
+    /// );
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::StatusLineNotValidText`](enum.Error.html#variant.StatusLineNotValidText)
+    ///   &ndash; the status line contained bytes which could not be decoded
+    ///   as valid UTF-8 text
+    /// * [`Error::StatusLineNoProtocolDelimiter`](enum.Error.html#variant.StatusLineNoProtocolDelimiter)
+    ///   &ndash; the protocol identifier part of the status line could not
+    ///   be parsed because no space character delimiting the protocol
+    ///   identifier from the numeric status code could be found
+    /// * [`Error::StatusLineProtocol`](enum.Error.html#variant.StatusLineProtocol)
+    ///   &ndash; the protocol identifier part of the status line is either
+    ///   missing or does not match "HTTP/1.1"
+    /// * [`Error::StatusLineNoStatusCodeDelimiter`](enum.Error.html#variant.StatusLineNoStatusCodeDelimiter)
+    ///   &ndash; the numeric status code part of the status line could not be
+    ///   parsed because no space character delimiting the numeric status code
+    ///   from the reason phrase could be found
+    /// * [`Error::InvalidStatusCode`](enum.Error.html#variant.InvalidStatusCode)
+    ///   &ndash; the value of the numeric status code in the status line could
+    ///   not be parsed
+    /// * [`Error::StatusCodeOutOfRange`](enum.Error.html#variant.StatusCodeOutOfRange)
+    ///   &ndash; the value of the numeric status code in the status line is
+    ///   greater than 999, the maximum permitted value
+    /// * [`Error::Headers`](enum.Error.html#variant.Headers) &ndash; an error
+    ///   occurred parsing the response headers
+    /// * [`Error::InvalidContentLength`](enum.Error.html#variant.InvalidContentLength)
+    ///   &ndash; the value of the "Content-Length" header of the response
+    ///   could not be parsed
+    /// * [`Error::ChunkSizeLineNotValidText`](enum.Error.html#variant.ChunkSizeLineNotValidText)
+    ///   &ndash; a chunk size line contained bytes which could not be decoded
+    ///   as valid UTF-8 text
+    /// * [`Error::InvalidChunkSize`](enum.Error.html#variant.InvalidChunkSize)
+    ///   &ndash; the value of a chunk size could not be parsed
+    /// * [`Error::InvalidChunkTerminator`](enum.Error.html#variant.InvalidChunkTerminator)
+    ///   &ndash; extra junk was found at the end of a chunk rather than
+    ///   carriage-return and line-feed, which are required
+    /// * [`Error::Trailer`](enum.Error.html#variant.Trailer) &ndash; an error
+    ///   occurred parsing the headers contained in the trailer for the
+    ///   chunked-encoded body
     pub fn parse<T>(
         &mut self,
         raw_message: T

@@ -40,6 +40,7 @@ pub struct ChunkedBody {
 }
 
 impl ChunkedBody {
+    #[cfg(test)]
     fn as_bytes(&self) -> &[u8] {
         &self.buffer
     }
@@ -56,7 +57,7 @@ impl ChunkedBody {
             let input_remainder = &input[total_consumed..];
             let (decode_status, consumed) = match self.state {
                 ChunkedBodyState::ChunkData => {
-                    self.decode_data(input_remainder)?
+                    self.decode_data(input_remainder)
                 },
                 ChunkedBodyState::ChunkSize => {
                     self.decode_size(input_remainder)?
@@ -79,120 +80,20 @@ impl ChunkedBody {
                 }
             };
         }
-        // let characters_previously_accepted = self.buffer.len();
-        // self.buffer << input.substr(offset, length);
-        // size_t charactersAccepted = 0;
-        // while (
-        //     (self.buffer.tellp() > 0)
-        //     && (self.state != State::Complete)
-        //     && (self.state != State::Error)
-        // ) {
-        //     if (self.state == State::DecodingChunks) {
-        //         const auto reassembledInput = self.buffer.str();
-        //         const auto lineEnd = reassembledInput.find(CRLF);
-        //         if (lineEnd == std::string::npos) {
-        //             charactersAccepted += (size_t)self.buffer.tellp();
-        //             break;
-        //         }
-        //         const auto lineLength = lineEnd + CRLF.length();
-        //         charactersAccepted += lineLength;
-        //         if (
-        //             !DecodeChunkSizeLine(
-        //                 reassembledInput,
-        //                 lineEnd,
-        //                 self.currentChunkBytesMissing
-        //             )
-        //         ) {
-        //             self.state = State::Error;
-        //             break;
-        //         }
-        //         self.buffer = std::ostringstream(reassembledInput.substr(lineLength), OUTPUT_STRING_STREAM_OPEN_MODE);
-        //         if (self.currentChunkBytesMissing == 0) {
-        //             self.state = State::DecodingTrailer;
-        //         } else {
-        //             self.state = State::ReadingChunkData;
-        //         }
-        //     }
-        //     if (self.state == State::ReadingChunkData) {
-        //         const size_t chunkDataAvailableFromInput = (size_t)self.buffer.tellp();
-        //         const auto chunkDataToCopyFromInput = std::min(
-        //             chunkDataAvailableFromInput,
-        //             self.currentChunkBytesMissing
-        //         );
-        //         if (chunkDataToCopyFromInput > 0) {
-        //             const auto reassembledInput = self.buffer.str();
-        //             if (reassembledInput.length() == chunkDataToCopyFromInput) {
-        //                 self.decodedBody << reassembledInput;
-        //                 self.buffer = std::ostringstream(OUTPUT_STRING_STREAM_OPEN_MODE);
-        //             } else {
-        //                 self.decodedBody << reassembledInput.substr(0, chunkDataToCopyFromInput);
-        //                 self.buffer = std::ostringstream(reassembledInput.substr(chunkDataToCopyFromInput), OUTPUT_STRING_STREAM_OPEN_MODE);
-        //             }
-        //             charactersAccepted += chunkDataToCopyFromInput;
-        //             self.currentChunkBytesMissing -= chunkDataToCopyFromInput;
-        //             if (self.currentChunkBytesMissing == 0) {
-        //                 self.state = State::ReadingChunkDelimiter;
-        //             }
-        //         }
-        //     }
-        //     if (self.state == State::ReadingChunkDelimiter) {
-        //         if ((size_t)self.buffer.tellp() < CRLF.length()) {
-        //             charactersAccepted += (size_t)self.buffer.tellp();
-        //             break;
-        //         }
-        //         const auto reassembledInput = self.buffer.str();
-        //         if (reassembledInput.substr(0, CRLF.length()) != CRLF) {
-        //             self.state = State::Error;
-        //             break;
-        //         }
-        //         charactersAccepted += CRLF.length();
-        //         self.buffer = std::ostringstream(reassembledInput.substr(CRLF.length()), OUTPUT_STRING_STREAM_OPEN_MODE);
-        //         self.state = State::DecodingChunks;
-        //     }
-        //     if (self.state == State::DecodingTrailer) {
-        //         const auto reassembledInput = self.buffer.str();
-        //         size_t charactersAcceptedByTrailer;
-        //         switch (
-        //             self.trailers.ParseRawMessage(
-        //                 reassembledInput,
-        //                 charactersAcceptedByTrailer
-        //             )
-        //         ) {
-        //             case MessageHeaders::MessageHeaders::State::Complete: {
-        //                 if (self.trailers.IsValid()) {
-        //                     self.state = State::Complete;
-        //                 } else {
-        //                     self.state = State::Error;
-        //                 }
-        //             } break;
-
-        //             case MessageHeaders::MessageHeaders::State::Incomplete: {
-        //             } break;
-
-        //             case MessageHeaders::MessageHeaders::State::Error:
-        //             default: {
-        //                 self.state = State::Error;
-        //             } break;
-        //         }
-        //         self.buffer = std::ostringstream(OUTPUT_STRING_STREAM_OPEN_MODE);
-        //         charactersAccepted += charactersAcceptedByTrailer;
-        //     }
-        // }
-        // letctersAccepted - characters_previously_accepted;
     }
 
     fn decode_data(
         &mut self,
         raw_message: &[u8]
-    ) -> Result<(DecodeStatusInternal, usize), Error> {
+    ) -> (DecodeStatusInternal, usize) {
         let consumed = raw_message.len().min(self.chunk_bytes_needed);
         self.chunk_bytes_needed -= consumed;
         self.buffer.extend(&raw_message[..consumed]);
         if self.chunk_bytes_needed == 0 {
             self.state = ChunkedBodyState::ChunkTerminator;
-            Ok((DecodeStatusInternal::CompletePart, consumed))
+            (DecodeStatusInternal::CompletePart, consumed)
         } else {
-            Ok((DecodeStatusInternal::Incomplete, consumed))
+            (DecodeStatusInternal::Incomplete, consumed)
         }
     }
 
@@ -255,10 +156,6 @@ impl ChunkedBody {
             state: ChunkedBodyState::ChunkSize,
             trailer: MessageHeaders::new(),
         }
-    }
-
-    fn trailer(&self) -> &MessageHeaders {
-        &self.trailer
     }
 }
 
@@ -535,7 +432,7 @@ mod tests {
                     value: "FeelsBadMan".into(),
                 },
             ],
-            body.trailer().headers()
+            body.trailer.headers()
         );
     }
 
@@ -585,7 +482,7 @@ mod tests {
                     value: "FeelsBadMan".into(),
                 },
             ],
-            body.trailer().headers()
+            body.trailer.headers()
         );
     }
 

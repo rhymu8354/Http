@@ -1,29 +1,43 @@
-# Http
+# Http (rhymuweb)
 
-This is a library which implements [RFC 7230](https://tools.ietf.org/html/rfc7230),
-"Hypertext Transfer Protocol (HTTP/1.1): Message Syntax and Routing".
+This is a library which implements [RFC
+7230](https://tools.ietf.org/html/rfc7230), "Hypertext Transfer Protocol
+(HTTP/1.1): Message Syntax and Routing".
 
-## Usage
+[![Crates.io](https://img.shields.io/crates/v/rhymuweb.svg)](https://crates.io/crates/rhymuweb)
+[![Documentation](https://docs.rs/rhymuweb/badge.svg)][dox]
 
-The `Http::Server` class is used to parse incoming HTTP requests (from web
-browsersor automated programs), route them to handlers that can satisfy the
-requests, and then generate appropriate HTTP responses to return back to the
-original HTTP request senders.
+More information about the Rust implementation of this library can be found in
+the [crate documentation][dox].
 
-The `Http::Client` class is used to generate HTTP requests (for web servers)
-and parse HTTP responses received back from web servers.
+[dox]: https://docs.rs/rhymuweb
 
-## Supported platforms / recommended toolchains
+The purpose of this library is to provide `Request` and `Response` types which
+can be used parse and generate Hypertext Transfer Protocol (HTTP) requests and
+responses.
 
-This is a portable C++11 library which depends only on the C++11 compiler and standard library, so it should be supported on almost any platform.  The following are recommended toolchains for popular platforms.
+This is a multi-language library containing independent implementations
+for the following programming languages:
 
-* Windows -- [Visual Studio](https://www.visualstudio.com/) (Microsoft Visual C++)
+* C++
+* Rust
+
+## Building the C++ Implementation
+
+A portable library is builtwhich depends only on the C++11 compiler and
+standard library, so it should be supported on almost any platform.  The
+following are recommended toolchains for popular platforms.
+
+* Windows -- [Visual Studio](https://www.visualstudio.com/) (Microsoft Visual
+  C++)
 * Linux -- clang or gcc
 * MacOS -- Xcode (clang)
 
 ## Building
 
-This library is not intended to stand alone.  It is intended to be included in a larger solution which uses [CMake](https://cmake.org/) to generate the build system and build applications which will link with the library.
+This library is not intended to stand alone.  It is intended to be included in
+a larger solution which uses [CMake](https://cmake.org/) to generate the build
+system and build applications which will link with the library.
 
 There are two distinct steps in the build process:
 
@@ -33,13 +47,15 @@ There are two distinct steps in the build process:
 ### Prerequisites
 
 * [CMake](https://cmake.org/) version 3.8 or newer
-* C++11 toolchain compatible with CMake for your development platform (e.g. [Visual Studio](https://www.visualstudio.com/) on Windows)
+* C++11 toolchain compatible with CMake for your development platform (e.g.
+  [Visual Studio](https://www.visualstudio.com/) on Windows)
 * [Timekeeping](https://github.com/rhymu8354/Timekeeping.git) - a library
   of classes and interfaces dealing with tracking time and scheduling work
 
 ### Build system generation
 
-Generate the build system using [CMake](https://cmake.org/) from the solution root.  For example:
+Generate the build system using [CMake](https://cmake.org/) from the solution
+root.  For example:
 
 ```bash
 mkdir build
