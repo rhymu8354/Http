@@ -1,8 +1,8 @@
 use rhymessage::MessageHeaders;
 use std::io::Write;
+use super::chunked_body::{ChunkedBody, DecodeStatus as ChunkedBodyDecodeStatus};
 use super::error::Error;
-use super::CRLF;
-use super::find_crlf;
+use super::{CRLF, find_crlf};
 
 fn parse_status_line(status_line: &str) -> Result<(usize, &str), Error> {
     // Parse the protocol.
@@ -30,9 +30,16 @@ fn parse_status_line(status_line: &str) -> Result<(usize, &str), Error> {
 }
 
 enum ResponseState {
-    Body(Option<usize>),
+    ChunkedBody(ChunkedBody),
+    FixedBody(usize),
     Headers,
     StatusLine,
+}
+
+impl Default for ResponseState {
+    fn default() -> Self {
+        Self::StatusLine
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -71,7 +78,7 @@ impl Response {
             body: Vec::new(),
             headers: MessageHeaders::new(),
             reason_phrase: "OK".into(),
-            state: ResponseState::StatusLine,
+            state: ResponseState::default(),
             status_code: 200,
         }
     }
@@ -86,9 +93,20 @@ impl Response {
         let mut total_consumed = 0;
         loop {
             let raw_message_remainder = &raw_message[total_consumed..];
-            let (parse_status, consumed) = match self.state {
-                ResponseState::Body(content_length) => {
-                    self.parse_message_for_body(raw_message_remainder, content_length)?
+            let state = std::mem::take(&mut self.state);
+            let (parse_status, state, consumed) = match state {
+                ResponseState::ChunkedBody(chunked_body) => {
+                    self.parse_message_for_chunked_body(
+                        raw_message_remainder,
+                        chunked_body
+                    )?
+                },
+                ResponseState::FixedBody(content_length) => {
+                    let (parse_status, consumed) = self.parse_message_for_fixed_body(
+                        raw_message_remainder,
+                        content_length
+                    )?;
+                    (parse_status, ResponseState::FixedBody(content_length), consumed)
                 },
                 ResponseState::Headers => {
                     self.parse_message_for_headers(raw_message_remainder)?
@@ -97,6 +115,7 @@ impl Response {
                     self.parse_message_for_status_line(raw_message_remainder)?
                 },
             };
+            self.state = state;
             total_consumed += consumed;
             match parse_status {
                 ParseStatusInternal::CompletePart => (),
@@ -110,25 +129,68 @@ impl Response {
         }
     }
 
-    fn parse_message_for_body(
+    fn parse_message_for_chunked_body(
         &mut self,
         raw_message: &[u8],
-        content_length: Option<usize>,
+        mut chunked_body: ChunkedBody,
+    ) -> Result<(ParseStatusInternal, ResponseState, usize), Error> {
+        match chunked_body.decode(raw_message)? {
+            (ChunkedBodyDecodeStatus::Complete, consumed) => {
+                self.body = std::mem::take(&mut chunked_body.buffer);
+                // TODO: We have to clone here for now because I didn't provide
+                // a way to consume the headers into an iterator or take them
+                // out.  In the future, once rhymessage::MessageHeaders is
+                // improved, we can revisit this code and remove the cloning.
+                for header in chunked_body.trailer.headers() {
+                    self.headers.add_header(
+                        header.name.clone(),
+                        header.value.clone()
+                    );
+                }
+
+                // Now that we've decoded the chunked body, we should remove
+                // the "chunked" token from the `Transfer-Encoding` header,
+                // and add a `Content-Length` header.
+                let mut transfer_encodings = self.headers.header_tokens("Transfer-Encoding");
+                transfer_encodings.pop();
+                if transfer_encodings.is_empty() {
+                    self.headers.remove_header("Transfer-Encoding");
+                } else {
+                    self.headers.set_header(
+                        "Transfer-Encoding",
+                        transfer_encodings.join(" ")
+                    );
+                }
+                self.headers.add_header(
+                    "Content-Length",
+                    self.body.len().to_string()
+                );
+                self.headers.remove_header("Trailer");
+                Ok((
+                    ParseStatusInternal::CompleteWhole,
+                    ResponseState::default(),
+                    consumed
+                ))
+            },
+            (ChunkedBodyDecodeStatus::Incomplete, consumed) => {
+                Ok((
+                    ParseStatusInternal::Incomplete,
+                    ResponseState::ChunkedBody(chunked_body),
+                    consumed
+                ))
+            },
+        }
+    }
+
+    fn parse_message_for_fixed_body(
+        &mut self,
+        raw_message: &[u8],
+        content_length: usize,
     ) -> Result<(ParseStatusInternal, usize), Error> {
-        // We can't use `Option::map_or_else` because both branches use `self`
-        // which is borrowed mutably.  Attempting to do so would cause compiler
-        // error E0524: "two closures require unique access to `self` at the
-        // same time".
-        #[allow(clippy::option_if_let_else)]
-        if let Some(content_length) = content_length {
-            let needed = content_length - self.body.len();
-            if raw_message.len() >= needed {
-                self.body.extend(&raw_message[..needed]);
-                Ok((ParseStatusInternal::CompleteWhole, needed))
-            } else {
-                self.body.extend(raw_message);
-                Ok((ParseStatusInternal::Incomplete, raw_message.len()))
-            }
+        let needed = content_length - self.body.len();
+        if raw_message.len() >= needed {
+            self.body.extend(&raw_message[..needed]);
+            Ok((ParseStatusInternal::CompleteWhole, needed))
         } else {
             self.body.extend(raw_message);
             Ok((ParseStatusInternal::Incomplete, raw_message.len()))
@@ -138,7 +200,7 @@ impl Response {
     fn parse_message_for_headers(
         &mut self,
         raw_message: &[u8]
-    ) -> Result<(ParseStatusInternal, usize), Error> {
+    ) -> Result<(ParseStatusInternal, ResponseState, usize), Error> {
         let parse_results = self.headers.parse(raw_message)
             .map_err(Error::Headers)?;
         match parse_results.status {
@@ -147,14 +209,31 @@ impl Response {
                     let content_length = content_length.parse::<usize>()
                         .map_err(Error::InvalidContentLength)?;
                     self.body.reserve(content_length);
-                    self.state = ResponseState::Body(Some(content_length));
-                    Ok((ParseStatusInternal::CompletePart, parse_results.consumed))
+                    Ok((
+                        ParseStatusInternal::CompletePart,
+                        ResponseState::FixedBody(content_length),
+                        parse_results.consumed
+                    ))
+                } else if self.headers.has_header_token("Transfer-Encoding", "chunked") {
+                    Ok((
+                        ParseStatusInternal::CompletePart,
+                        ResponseState::ChunkedBody(ChunkedBody::new()),
+                        parse_results.consumed
+                    ))
                 } else {
-                    Ok((ParseStatusInternal::CompleteWhole, parse_results.consumed))
+                    Ok((
+                        ParseStatusInternal::CompleteWhole,
+                        ResponseState::Headers,
+                        parse_results.consumed
+                    ))
                 }
             },
             rhymessage::ParseStatus::Incomplete => {
-                Ok((ParseStatusInternal::Incomplete, parse_results.consumed))
+                Ok((
+                    ParseStatusInternal::Incomplete,
+                    ResponseState::Headers,
+                    parse_results.consumed
+                ))
             },
         }
     }
@@ -162,20 +241,27 @@ impl Response {
     fn parse_message_for_status_line(
         &mut self,
         raw_message: &[u8]
-    ) -> Result<(ParseStatusInternal, usize), Error> {
+    ) -> Result<(ParseStatusInternal, ResponseState, usize), Error> {
         match find_crlf(raw_message) {
             Some(status_line_end) => {
                 let status_line = &raw_message[0..status_line_end];
                 let status_line = std::str::from_utf8(status_line)
                     .map_err(|_| Error::StatusLineNotValidText(status_line.to_vec()))?;
                 let consumed = status_line_end + CRLF.len();
-                self.state = ResponseState::Headers;
                 let (status_code, reason_phrase) = parse_status_line(status_line)?;
                 self.status_code = status_code;
                 self.reason_phrase = reason_phrase.to_string().into();
-                Ok((ParseStatusInternal::CompletePart, consumed))
+                Ok((
+                    ParseStatusInternal::CompletePart,
+                    ResponseState::Headers,
+                    consumed
+                ))
             },
-            None => Ok((ParseStatusInternal::Incomplete, 0)),
+            None => Ok((
+                ParseStatusInternal::Incomplete,
+                ResponseState::StatusLine,
+                0
+            )),
         }
     }
 }
