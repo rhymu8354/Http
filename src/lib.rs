@@ -30,7 +30,7 @@
 //!
 //! [`headers`]: struct.Request.html#method.generate#structfield.headers
 //! [`max_message_size`]: struct.Request.html#structfield.max_message_size
-//! [`MessageHeaders::set_line_limit`]: https://docs.rs/rhymessage/1.2.0/rhymessage/struct.MessageHeaders.html#method.set_line_limit
+//! [`MessageHeaders::set_line_limit`]: https://docs.rs/rhymessage/1.3.0/rhymessage/struct.MessageHeaders.html#method.set_line_limit
 //! [`Response`]: struct.Response.html
 //! [`Response::generate`]: struct.Response.html#method.generate
 //! [`Response::new`]: struct.Response.html#method.new

@@ -16,6 +16,6 @@ exclude = [
 ]
 
 [dependencies]
-rhymessage = { path = "../MessageHeaders" }
-rhymuri = { path = "../Uri" }
+rhymessage = "1.3"
+rhymuri = "1.1"
 thiserror = "1.0"
