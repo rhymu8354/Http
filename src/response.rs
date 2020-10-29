@@ -93,6 +93,12 @@ pub struct Response {
     /// corresponding request.  It is defined in [IETF RFC 7231 section
     /// 6](https://tools.ietf.org/html/rfc7231#section-6).
     pub status_code: usize,
+
+    /// This holds any bytes received from the server that came after
+    /// the HTTP response.  They may be junk or the first bytes of the
+    /// first message(s) sent by the server using a higher-level protocol.
+    /// It's not our business to judge. ¯\_(ツ)_/¯
+    pub trailer: Vec<u8>,
 }
 
 impl Response {
@@ -185,6 +191,7 @@ impl Response {
             reason_phrase: "OK".into(),
             state: ResponseState::default(),
             status_code: 200,
+            trailer: Vec::new(),
         }
     }
 
@@ -415,13 +422,17 @@ impl Response {
         content_length: usize,
     ) -> Result<(ParseStatusInternal, usize), Error> {
         let needed = content_length - self.body.len();
-        if raw_message.len() >= needed {
-            self.body.extend(&raw_message[..needed]);
-            Ok((ParseStatusInternal::CompleteWhole, needed))
-        } else {
-            self.body.extend(raw_message);
-            Ok((ParseStatusInternal::Incomplete, raw_message.len()))
-        }
+        Ok((
+            if raw_message.len() >= needed {
+                self.body.extend(&raw_message[..needed]);
+                self.trailer.extend(&raw_message[needed..]);
+                ParseStatusInternal::CompleteWhole
+            } else {
+                self.body.extend(raw_message);
+                ParseStatusInternal::Incomplete
+            },
+            raw_message.len()
+        ))
     }
 
     fn parse_message_for_headers(
@@ -501,6 +512,8 @@ impl Default for Response {
 
 #[cfg(test)]
 mod tests {
+
+    #![allow(clippy::string_lit_as_bytes)]
 
     use super::*;
 
@@ -857,6 +870,34 @@ mod tests {
             }) if consumed == raw_response.len()
         ));
         assert!(response.body.is_empty());
+    }
+
+    #[test]
+    fn parse_response_trailer() {
+        let raw_response = concat!(
+            "HTTP/1.1 200 OK\r\n",
+            "Content-Length: 18\r\n",
+            "Content-Type: text/plain\r\n",
+            "\r\n",
+            "This is the body\r\n",
+            "This is some extra trailer junk.",
+        );
+        let mut response = Response::new();
+        assert!(matches!(
+            response.parse(raw_response),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed
+            }) if consumed == raw_response.len()
+        ));
+        assert_eq!(
+            "This is the body\r\n".as_bytes(),
+            response.body
+        );
+        assert_eq!(
+            "This is some extra trailer junk.".as_bytes(),
+            response.trailer
+        );
     }
 
 }
