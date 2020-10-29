@@ -1,7 +1,11 @@
 /// This is the enumeration of all the different kinds of errors which this
 /// crate generates.
-#[derive(Debug, Clone, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// There was an error attempting to decode the body.
+    #[error("unable to decode response body")]
+    BadContentEncoding(#[source] std::io::Error),
+
     /// The attached bytes did not parse as valid chunk size text.
     #[error("chunk size line is not valid text")]
     ChunkSizeLineNotValidText(Vec<u8>),

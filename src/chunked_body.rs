@@ -168,10 +168,10 @@ mod tests {
     fn decode_simple_empty_body_one_piece() {
         let input = "0\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Complete, input.len())),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Ok((DecodeStatus::Complete, consumed)) if consumed == input.len()
+        ));
         assert_eq!(b"", body.as_bytes());
     }
 
@@ -179,10 +179,10 @@ mod tests {
     fn decode_empty_body_multiple_zeroes() {
         let input = "00000\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Complete, input.len())),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Ok((DecodeStatus::Complete, consumed)) if consumed == input.len()
+        ));
         assert_eq!(b"", body.as_bytes());
     }
 
@@ -190,10 +190,10 @@ mod tests {
     fn decode_empty_body_with_chunk_extension_no_value() {
         let input = "000;dude\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Complete, input.len())),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Ok((DecodeStatus::Complete, consumed)) if consumed == input.len()
+        ));
         assert_eq!(b"", body.as_bytes());
     }
 
@@ -201,10 +201,10 @@ mod tests {
     fn decode_empty_body_with_chunk_extension_with_unquoted_value() {
         let input = "000;Kappa=PogChamp\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Complete, input.len())),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Ok((DecodeStatus::Complete, consumed)) if consumed == input.len()
+        ));
         assert_eq!(b"", body.as_bytes());
     }
 
@@ -212,10 +212,10 @@ mod tests {
     fn decode_empty_body_with_chunk_extension_with_quoted_value() {
         let input = "000;Kappa=\"Hello, World!\"\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Complete, input.len())),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Ok((DecodeStatus::Complete, consumed)) if consumed == input.len()
+        ));
         assert_eq!(b"", body.as_bytes());
     }
 
@@ -223,10 +223,10 @@ mod tests {
     fn decode_empty_body_with_multiple_chunk_extensions() {
         let input = "000;Foo=Bar;Kappa=\"Hello, World!\";Spam=12345!\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Complete, input.len())),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Ok((DecodeStatus::Complete, consumed)) if consumed == input.len()
+        ));
         assert_eq!(b"", body.as_bytes());
     }
 
@@ -262,10 +262,10 @@ mod tests {
     fn decode_simple_empty_body_one_piece_with_extra_stuff_after() {
         let input = "0\r\n\r\nHello!";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Complete, 5)),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Ok((DecodeStatus::Complete, 5))
+        ));
         assert_eq!(b"", body.as_bytes());
     }
 
@@ -273,15 +273,15 @@ mod tests {
     fn decode_simple_empty_body_two_pieces() {
         let input = "XYZ0\r\n\r\n123";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Incomplete, 3)),
-            body.decode(&input[3..7])
-        );
+        assert!(matches!(
+            body.decode(&input[3..7]),
+            Ok((DecodeStatus::Incomplete, 3))
+        ));
         assert_eq!(ChunkedBodyState::Trailer, body.state);
-        assert_eq!(
-            Ok((DecodeStatus::Complete, 2)),
-            body.decode(&input[6..9])
-        );
+        assert!(matches!(
+            body.decode(&input[6..9]),
+            Ok((DecodeStatus::Complete, 2))
+        ));
         assert_eq!(b"", body.as_bytes());
     }
 
@@ -289,10 +289,10 @@ mod tests {
     fn decode_simple_non_empty_body_one_piece() {
         let input = "5\r\nHello\r\n0\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Complete, input.len())),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Ok((DecodeStatus::Complete, consumed)) if consumed == input.len()
+        ));
         assert_eq!(b"Hello", body.as_bytes());
     }
 
@@ -343,10 +343,10 @@ mod tests {
     fn decode_two_chunk_body_one_piece() {
         let input = "6\r\nHello,\r\n7\r\n World!\r\n0\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Complete, input.len())),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Ok((DecodeStatus::Complete, consumed)) if consumed == input.len()
+        ));
         assert_eq!(b"Hello, World!", body.as_bytes());
     }
 
@@ -416,10 +416,10 @@ mod tests {
     fn decode_trailers_one_piece() {
         let input = "0\r\nX-Foo: Bar\r\nX-Poggers: FeelsBadMan\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Ok((DecodeStatus::Complete, input.len())),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Ok((DecodeStatus::Complete, consumed)) if consumed == input.len()
+        ));
         assert_eq!(b"", body.as_bytes());
         assert_eq!(
             &vec![
@@ -510,24 +510,22 @@ mod tests {
     fn decode_bad_junk_after_chunk() {
         let input = "1\r\nXjunk\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
-            Err(Error::InvalidChunkTerminator(b"junk\r\n".to_vec())),
-            body.decode(input)
-        );
+        assert!(matches!(
+            body.decode(input),
+            Err(Error::InvalidChunkTerminator(junk)) if junk == b"junk\r\n"
+        ));
     }
 
     #[test]
     fn decode_bad_trailer() {
         let input = "0\r\nX-Foo Bar\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert_eq!(
+        assert!(matches!(
+            body.decode(input),
             Err(Error::Trailer(
-                rhymessage::Error::HeaderLineMissingColon(
-                    String::from("X-Foo Bar")
-                )
-            )),
-            body.decode(input)
-        );
+                rhymessage::Error::HeaderLineMissingColon(line)
+            )) if line == "X-Foo Bar"
+        ));
     }
 
 }

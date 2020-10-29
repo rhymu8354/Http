@@ -145,15 +145,15 @@ impl Request {
     /// request.target = Uri::parse("/foo").unwrap();
     /// request.headers.set_header("Host", "www.example.com");
     /// request.headers.set_header("Content-Type", "text/plain");
-    /// assert_eq!(
-    ///     Ok(concat!(
+    /// assert!(matches!(
+    ///     request.generate(),
+    ///     Ok(raw_request) if raw_request == concat!(
     ///         "GET /foo HTTP/1.1\r\n",
     ///         "Host: www.example.com\r\n",
     ///         "Content-Type: text/plain\r\n",
     ///         "\r\n",
-    ///     ).as_bytes()),
-    ///     request.generate().as_deref()
-    /// );
+    ///     ).as_bytes()
+    /// ));
     /// # Ok(())
     /// # }
     /// ```
@@ -225,17 +225,17 @@ impl Request {
     ///     raw_request_body.len()
     /// );
     /// let mut request = Request::new();
-    /// assert_eq!(
-    ///     Ok(RequestParseResults{
-    ///         status: RequestParseStatus::Complete,
-    ///         consumed: raw_request_headers.len() + raw_request_body.len()
-    ///     }),
+    /// assert!(matches!(
     ///     request.parse(
-    ///         raw_request_headers
+    ///         raw_request_headers.clone()
     ///         + raw_request_body
     ///         + raw_request_extra
-    ///     )
-    /// );
+    ///     ),
+    ///     Ok(RequestParseResults{
+    ///         status: RequestParseStatus::Complete,
+    ///         consumed
+    ///     }) if consumed == raw_request_headers.len() + raw_request_body.len()
+    /// ));
     /// assert_eq!("POST", request.method);
     /// assert_eq!("/", request.target.to_string());
     /// assert!(request.headers.has_header("Content-Type"));
@@ -423,15 +423,15 @@ mod tests {
         request.target = Uri::parse("/foo").unwrap();
         request.headers.set_header("Host", "www.example.com");
         request.headers.set_header("Content-Type", "text/plain");
-        assert_eq!(
-            Ok(concat!(
+        assert!(matches!(
+            request.generate(),
+            Ok(raw_request) if raw_request == concat!(
                 "GET /foo HTTP/1.1\r\n",
                 "Host: www.example.com\r\n",
                 "Content-Type: text/plain\r\n",
                 "\r\n",
-            ).as_bytes()),
-            request.generate().as_deref()
-        );
+            ).as_bytes()
+        ));
     }
 
     #[test]
@@ -446,8 +446,9 @@ mod tests {
             name: "Content-Length".into(),
             value: format!("{}", request.body.len())
         });
-        assert_eq!(
-            Ok(format!(
+        assert!(matches!(
+            request.generate(),
+            Ok(raw_request) if raw_request == format!(
                 concat!(
                     "PUT /foo HTTP/1.1\r\n",
                     "Host: www.example.com\r\n",
@@ -457,9 +458,8 @@ mod tests {
                     "FeelsGoodMan",
                 ),
                 request.body.len()
-            ).as_bytes()),
-            request.generate().as_deref()
-        );
+            ).as_bytes()
+        ));
     }
 
     #[test]
@@ -472,13 +472,13 @@ mod tests {
             "Accept-Language: en, mi\r\n",
             "\r\n",
         );
-        assert_eq!(
+        assert!(matches!(
+            request.parse(raw_request),
             Ok(ParseResults{
                 status: ParseStatus::Complete,
-                consumed: raw_request.len()
-            }),
-            request.parse(raw_request)
-        );
+                consumed
+            }) if consumed == raw_request.len()
+        ));
         assert_eq!("GET", request.method);
         assert_eq!("/hello.txt", request.target.to_string());
         assert!(request.headers.has_header("User-Agent"));
@@ -509,13 +509,13 @@ mod tests {
             "Accept-Language: en, mi\r\n",
             "\r\n",
         );
-        assert_eq!(
+        assert!(matches!(
+            request.parse(raw_request),
             Ok(ParseResults{
                 status: ParseStatus::Complete,
-                consumed: raw_request.len()
-            }),
-            request.parse(raw_request)
-        );
+                consumed
+            }) if consumed == raw_request.len()
+        ));
         assert_eq!("GET", request.method);
         let mut expected_uri = Uri::default();
         expected_uri.set_path(
@@ -557,17 +557,17 @@ mod tests {
             raw_request_body.len()
         );
         let mut request = Request::new();
-        assert_eq!(
-            Ok(ParseResults{
-                status: ParseStatus::Complete,
-                consumed: raw_request_headers.len() + raw_request_body.len()
-            }),
+        assert!(matches!(
             request.parse(
-                raw_request_headers
+                raw_request_headers.clone()
                 + raw_request_body
                 + raw_request_extra
-            )
-        );
+            ),
+            Ok(ParseResults{
+                status: ParseStatus::Complete,
+                consumed
+            }) if consumed == raw_request_headers.len() + raw_request_body.len()
+        ));
         assert_eq!("POST", request.method);
         assert_eq!("/", request.target.to_string());
         assert!(request.headers.has_header("Content-Type"));
@@ -601,10 +601,10 @@ mod tests {
             "\r\n",
         );
         let mut request = Request::new();
-        assert_eq!(
-            Err(Error::RequestLineNoMethodDelimiter("foobar".into())),
-            request.parse(raw_request)
-        );
+        assert!(matches!(
+            request.parse(raw_request),
+            Err(Error::RequestLineNoMethodDelimiter(line)) if line == "foobar"
+        ));
     }
 
     #[test]
@@ -617,10 +617,11 @@ mod tests {
             "\r\n",
         );
         let mut request = Request::new();
-        assert_eq!(
-            Err(Error::RequestLineNoMethodOrExtraWhitespace(" /hello.txt HTTP/1.1".into())),
-            request.parse(raw_request)
-        );
+        assert!(matches!(
+            request.parse(raw_request),
+            Err(Error::RequestLineNoMethodOrExtraWhitespace(line))
+                if line == " /hello.txt HTTP/1.1"
+        ));
     }
 
     #[test]
@@ -633,10 +634,11 @@ mod tests {
             "\r\n",
         );
         let mut request = Request::new();
-        assert_eq!(
-            Err(Error::RequestLineNoTargetOrExtraWhitespace("GET  HTTP/1.1".into())),
-            request.parse(raw_request)
-        );
+        assert!(matches!(
+            request.parse(raw_request),
+            Err(Error::RequestLineNoTargetOrExtraWhitespace(line))
+                if line == "GET  HTTP/1.1"
+        ));
     }
 
     #[test]
@@ -649,10 +651,11 @@ mod tests {
             "\r\n",
         );
         let mut request = Request::new();
-        assert_eq!(
-            Err(Error::RequestLineNoTargetDelimiter("GET /hello.txt".into())),
-            request.parse(raw_request)
-        );
+        assert!(matches!(
+            request.parse(raw_request),
+            Err(Error::RequestLineNoTargetDelimiter(line))
+                if line == "GET /hello.txt"
+        ));
     }
 
     #[test]
@@ -665,10 +668,11 @@ mod tests {
             "\r\n",
         );
         let mut request = Request::new();
-        assert_eq!(
-            Err(Error::RequestLineProtocol("GET /hello.txt ".into())),
-            request.parse(raw_request)
-        );
+        assert!(matches!(
+            request.parse(raw_request),
+            Err(Error::RequestLineProtocol(line))
+                if line == "GET /hello.txt "
+        ));
     }
 
     #[test]
@@ -681,10 +685,11 @@ mod tests {
             "\r\n",
         );
         let mut request = Request::new();
-        assert_eq!(
-            Err(Error::RequestLineProtocol("GET /hello.txt FOO".into())),
-            request.parse(raw_request)
-        );
+        assert!(matches!(
+            request.parse(raw_request),
+            Err(Error::RequestLineProtocol(line))
+                if line == "GET /hello.txt FOO"
+        ));
     }
 
     #[test]
@@ -697,14 +702,12 @@ mod tests {
             "\r\n",
         );
         let mut request = Request::new();
-        assert_eq!(
+        assert!(matches!(
+            request.parse(raw_request),
             Err(Error::Headers(
-                rhymessage::Error::HeaderLineMissingColon(
-                    String::from("User-Agent curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3")
-                )
-            )),
-            request.parse(raw_request)
-        );
+                rhymessage::Error::HeaderLineMissingColon(line)
+            )) if line == "User-Agent curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3"
+        ));
     }
 
     #[test]
@@ -725,12 +728,11 @@ mod tests {
             + "Accept-Language: en, mi\r\n"
             + "\r\n";
         let mut request = Request::new();
-        assert_eq!(
-            Err(Error::Headers(rhymessage::Error::HeaderLineTooLong(
-                too_long_header[0..1000].as_bytes().to_vec()
-            ))),
-            request.parse(raw_request)
-        );
+        assert!(matches!(
+            request.parse(raw_request),
+            Err(Error::Headers(rhymessage::Error::HeaderLineTooLong(line)))
+                if line == too_long_header[0..1000].as_bytes()
+        ));
     }
 
     #[test]
@@ -751,13 +753,13 @@ mod tests {
             + "\r\n";
         let mut request = Request::new();
         request.headers.set_line_limit(Some(1001));
-        assert_eq!(
+        assert!(matches!(
+            request.parse(&raw_request),
             Ok(ParseResults{
                 status: ParseStatus::Complete,
-                consumed: raw_request.len()
-            }),
-            request.parse(raw_request)
-        );
+                consumed
+            }) if consumed == raw_request.len()
+        ));
     }
 
     #[test]
@@ -788,10 +790,10 @@ mod tests {
             "\r\n",
         );
         let mut request = Request::new();
-        assert_eq!(
-            Err(Error::MessageTooLong),
-            request.parse(raw_request)
-        );
+        assert!(matches!(
+            request.parse(raw_request),
+            Err(Error::MessageTooLong)
+        ));
     }
 
     #[test]
@@ -805,13 +807,13 @@ mod tests {
             "say=Hi&to=Mom\r\n",
         );
         let mut request = Request::new();
-        assert_eq!(
+        assert!(matches!(
+            request.parse(raw_request),
             Ok(ParseResults{
                 status: ParseStatus::Incomplete,
-                consumed: raw_request.len()
-            }),
-            request.parse(raw_request)
-        );
+                consumed
+            }) if consumed == raw_request.len()
+        ));
     }
 
     #[test]
@@ -823,13 +825,13 @@ mod tests {
         let raw_request = String::from(raw_request_first_part)
             + "Content-Type: application/x-www-form-urlencoded\r\n";
         let mut request = Request::new();
-        assert_eq!(
+        assert!(matches!(
+            request.parse(raw_request),
             Ok(ParseResults{
                 status: ParseStatus::Incomplete,
-                consumed: raw_request_first_part.len()
-            }),
-            request.parse(raw_request)
-        );
+                consumed
+            }) if consumed == raw_request_first_part.len()
+        ));
     }
 
     #[test]
@@ -841,39 +843,39 @@ mod tests {
             + "Host: foo.com\r\n"
             + "Content-Type: application/x-w";
         let mut request = Request::new();
-        assert_eq!(
+        assert!(matches!(
+            request.parse(raw_request),
             Ok(ParseResults{
                 status: ParseStatus::Incomplete,
-                consumed: raw_request_first_part.len()
-            }),
-            request.parse(raw_request)
-        );
+                consumed
+            }) if consumed == raw_request_first_part.len()
+        ));
     }
 
     #[test]
     fn parse_incomplete_request_line() {
         let raw_request = "POST / HTTP/1.1\r";
         let mut request = Request::new();
-        assert_eq!(
+        assert!(matches!(
+            request.parse(raw_request),
             Ok(ParseResults{
                 status: ParseStatus::Incomplete,
                 consumed: 0
-            }),
-            request.parse(raw_request)
-        );
+            })
+        ));
     }
 
     #[test]
     fn parse_incomplete_no_headers_request() {
         let raw_request = "POST / HTTP/1.1\r\n";
         let mut request = Request::new();
-        assert_eq!(
+        assert!(matches!(
+            request.parse(raw_request),
             Ok(ParseResults{
                 status: ParseStatus::Incomplete,
-                consumed: raw_request.len()
-            }),
-            request.parse(raw_request)
-        );
+                consumed
+            }) if consumed == raw_request.len()
+        ));
     }
 
     #[test]
@@ -888,13 +890,13 @@ mod tests {
         let raw_request_with_extra = String::from(raw_request)
              + "Hello, World!\r\n";
         let mut request = Request::new();
-        assert_eq!(
+        assert!(matches!(
+            request.parse(raw_request_with_extra),
             Ok(ParseResults{
                 status: ParseStatus::Complete,
-                consumed: raw_request.len()
-            }),
-            request.parse(raw_request_with_extra)
-        );
+                consumed
+            }) if consumed == raw_request.len()
+        ));
         assert!(request.body.is_empty());
     }
 
@@ -904,12 +906,11 @@ mod tests {
         let raw_request = String::from("GET ")
             + &uri_too_long + " HTTP/1.1\r\n";
         let mut request = Request::new();
-        assert_eq!(
-            Err(Error::RequestLineTooLong(
-                raw_request[0..1000].as_bytes().to_vec()
-            )),
-            request.parse(raw_request)
-        );
+        assert!(matches!(
+            request.parse(&raw_request),
+            Err(Error::RequestLineTooLong(line))
+                if line == raw_request[0..1000].as_bytes()
+        ));
     }
 
     #[test]
@@ -923,13 +924,13 @@ mod tests {
             "Accept-Language: en, mi\r\n",
             "\r\n",
         );
-        assert_eq!(
+        assert!(matches!(
+            request.parse(small_request),
             Ok(ParseResults{
                 status: ParseStatus::Complete,
-                consumed: small_request.len()
-            }),
-            request.parse(small_request)
-        );
+                consumed
+            }) if consumed == small_request.len()
+        ));
         request = Request::new();
         request.max_message_size = Some(150);
         let large_request = concat!(
@@ -940,10 +941,10 @@ mod tests {
             "X-PogChamp-Level: Over 9000\r\n",
             "\r\n",
         );
-        assert_eq!(
-            Err(Error::MessageTooLong),
-            request.parse(large_request)
-        );
+        assert!(matches!(
+            request.parse(large_request),
+            Err(Error::MessageTooLong)
+        ));
     }
 
     #[test]
@@ -958,13 +959,13 @@ mod tests {
             "\r\n",
             "say=Hi&to=Mom\r\n",
         );
-        assert_eq!(
+        assert!(matches!(
+            request.parse(small_request),
             Ok(ParseResults{
                 status: ParseStatus::Complete,
-                consumed: small_request.len()
-            }),
-            request.parse(small_request)
-        );
+                consumed
+            }) if consumed == small_request.len()
+        ));
         request = Request::new();
         request.max_message_size = Some(125);
         let large_request = concat!(
@@ -975,10 +976,10 @@ mod tests {
             "\r\n",
             "say=Hi&to=Mom&listen_to=lecture&content=remember_to_brush_your_teeth_and_always_wear_clean_underwear\r\n",
         );
-        assert_eq!(
-            Err(Error::MessageTooLong),
-            request.parse(large_request)
-        );
+        assert!(matches!(
+            request.parse(large_request),
+            Err(Error::MessageTooLong)
+        ));
     }
 
 }

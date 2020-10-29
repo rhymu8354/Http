@@ -45,6 +45,7 @@
 #![warn(missing_docs)]
 
 mod chunked_body;
+pub mod coding;
 mod error;
 mod request;
 mod response;

@@ -135,8 +135,9 @@ impl Response {
     ///     name: "Content-Length".into(),
     ///     value: format!("{}", response.body.len())
     /// });
-    /// assert_eq!(
-    ///     Ok(format!(
+    /// assert!(matches!(
+    ///     response.generate(),
+    ///     Ok(raw_response) if raw_response == format!(
     ///         concat!(
     ///             "HTTP/1.1 200 OK\r\n",
     ///             "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n",
@@ -147,9 +148,8 @@ impl Response {
     ///             "Hello World! My payload includes a trailing CRLF.\r\n",
     ///         ),
     ///         response.body.len()
-    ///     ).as_bytes()),
-    ///     response.generate().as_deref()
-    /// );
+    ///     ).as_bytes()
+    /// ));
     /// # Ok(())
     /// # }
     /// ```
@@ -226,13 +226,13 @@ impl Response {
     ///     "\r\n",
     /// );
     /// let mut response = Response::new();
-    /// assert_eq!(
+    /// assert!(matches!(
+    ///     response.parse(raw_response),
     ///     Ok(ResponseParseResults{
     ///         status: ResponseParseStatus::Complete,
-    ///         consumed: raw_response.len()
-    ///     }),
-    ///     response.parse(raw_response)
-    /// );
+    ///         consumed
+    ///     }) if consumed == raw_response.len()
+    /// ));
     /// assert_eq!(200, response.status_code);
     /// assert_eq!("OK", response.reason_phrase);
     /// assert!(response.headers.has_header("Date"));
@@ -526,8 +526,9 @@ mod tests {
             name: "Content-Length".into(),
             value: format!("{}", response.body.len())
         });
-        assert_eq!(
-            Ok(format!(
+        assert!(matches!(
+            response.generate(),
+            Ok(raw_response) if raw_response == format!(
                 concat!(
                     "HTTP/1.1 200 OK\r\n",
                     "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n",
@@ -538,9 +539,8 @@ mod tests {
                     "Hello World! My payload includes a trailing CRLF.\r\n",
                 ),
                 response.body.len()
-            ).as_bytes()),
-            response.generate().as_deref()
-        );
+            ).as_bytes()
+        ));
     }
 
     #[test]
@@ -559,13 +559,13 @@ mod tests {
             "Hello World! My payload includes a trailing CRLF.\r\n",
         );
         let mut response = Response::new();
-        assert_eq!(
+        assert!(matches!(
+            response.parse(raw_response),
             Ok(ParseResults{
                 status: ParseStatus::Complete,
-                consumed: raw_response.len()
-            }),
-            response.parse(raw_response)
-        );
+                consumed
+            }) if consumed == raw_response.len()
+        ));
         assert_eq!(200, response.status_code);
         assert_eq!("OK", response.reason_phrase);
         assert!(response.headers.has_header("Date"));
@@ -619,13 +619,13 @@ mod tests {
             "\r\n",
         );
         let mut response = Response::new();
-        assert_eq!(
+        assert!(matches!(
+            response.parse(raw_response),
             Ok(ParseResults{
                 status: ParseStatus::Complete,
-                consumed: raw_response.len()
-            }),
-            response.parse(raw_response)
-        );
+                consumed
+            }) if consumed == raw_response.len()
+        ));
         assert_eq!(200, response.status_code);
         assert_eq!("OK", response.reason_phrase);
         assert!(response.headers.has_header("Date"));
@@ -676,13 +676,13 @@ mod tests {
             "\r\n",
         );
         let mut response = Response::new();
-        assert_eq!(
+        assert!(matches!(
+            response.parse(raw_response),
             Ok(ParseResults{
                 status: ParseStatus::Complete,
-                consumed: raw_response.len()
-            }),
-            response.parse(raw_response)
-        );
+                consumed
+            }) if consumed == raw_response.len()
+        ));
         assert_eq!(
             Some("foobar"),
             response.headers.header_value("Transfer-Encoding").as_deref()
@@ -705,13 +705,13 @@ mod tests {
             "Hello World! My payload includes a trailing CRLF.\r\n",
         );
         let mut response = Response::new();
-        assert_eq!(
+        assert!(matches!(
+            response.parse(raw_response),
             Ok(ParseResults{
                 status: ParseStatus::Incomplete,
-                consumed: raw_response.len()
-            }),
-            response.parse(raw_response)
-        );
+                consumed
+            }) if consumed == raw_response.len()
+        ));
     }
 
     #[test]
@@ -725,13 +725,13 @@ mod tests {
         let raw_response = String::from(raw_response_first_part)
             + "ETag: \"34aa387-d-1568eb00\"\r\n";
         let mut response = Response::new();
-        assert_eq!(
+        assert!(matches!(
+            response.parse(raw_response),
             Ok(ParseResults{
                 status: ParseStatus::Incomplete,
-                consumed: raw_response_first_part.len()
-            }),
-            response.parse(raw_response)
-        );
+                consumed
+            }) if consumed == raw_response_first_part.len()
+        ));
     }
 
     #[test]
@@ -744,49 +744,49 @@ mod tests {
             + "Server: Apache\r\n"
             + "Last-Modified: Wed, 22 Ju";
         let mut response = Response::new();
-        assert_eq!(
+        assert!(matches!(
+            response.parse(raw_response),
             Ok(ParseResults{
                 status: ParseStatus::Incomplete,
-                consumed: raw_response_first_part.len()
-            }),
-            response.parse(raw_response)
-        );
+                consumed
+            }) if consumed == raw_response_first_part.len()
+        ));
     }
 
     #[test]
     fn parse_incomplete_status_line() {
         let raw_response = "HTTP/1.1 200 OK\r";
         let mut response = Response::new();
-        assert_eq!(
+        assert!(matches!(
+            response.parse(raw_response),
             Ok(ParseResults{
                 status: ParseStatus::Incomplete,
                 consumed: 0
-            }),
-            response.parse(raw_response)
-        );
+            })
+        ));
     }
 
     #[test]
     fn parse_no_headers_response() {
         let raw_response = "HTTP/1.1 200 OK\r\n";
         let mut response = Response::new();
-        assert_eq!(
+        assert!(matches!(
+            response.parse(raw_response),
             Ok(ParseResults{
                 status: ParseStatus::Incomplete,
-                consumed: raw_response.len()
-            }),
-            response.parse(raw_response)
-        );
+                consumed
+            }) if consumed == raw_response.len()
+        ));
     }
 
     #[test]
     fn parse_invalid_response_no_protocol() {
         let raw_response = " 200 OK\r\n";
         let mut response = Response::new();
-        assert_eq!(
-            Err(Error::StatusLineProtocol(" 200 OK".into())),
+        assert!(matches!(
             response.parse(raw_response),
-        );
+            Err(Error::StatusLineProtocol(line)) if line == " 200 OK"
+        ));
     }
 
     #[test]
@@ -803,10 +803,11 @@ mod tests {
     fn parse_invalid_response_no_reason_phrase() {
         let raw_response = "HTTP/1.1 200\r\n";
         let mut response = Response::new();
-        assert_eq!(
-            Err(Error::StatusLineNoStatusCodeDelimiter("HTTP/1.1 200".into())),
+        assert!(matches!(
             response.parse(raw_response),
-        );
+            Err(Error::StatusLineNoStatusCodeDelimiter(line))
+                if line == "HTTP/1.1 200"
+        ));
     }
 
     #[test]
@@ -825,14 +826,12 @@ mod tests {
             "Hello World! My payload includes a trailing CRLF.\r\n",
         );
         let mut response = Response::new();
-        assert_eq!(
-            Err(Error::Headers(
-                rhymessage::Error::HeaderNameContainsIllegalCharacter(
-                    "Last-Modified Wed, 22 Jul 2009 19".into()
-                )
-            )),
+        assert!(matches!(
             response.parse(raw_response),
-        );
+            Err(Error::Headers(
+                rhymessage::Error::HeaderNameContainsIllegalCharacter(name)
+            )) if name == "Last-Modified Wed, 22 Jul 2009 19"
+        ));
     }
 
     #[test]
@@ -850,13 +849,13 @@ mod tests {
         );
         let trailer = "Hello World! My payload includes a trailing CRLF.\r\n";
         let mut response = Response::new();
-        assert_eq!(
+        assert!(matches!(
+            response.parse(String::from(raw_response) + trailer),
             Ok(ParseResults{
                 status: ParseStatus::Complete,
-                consumed: raw_response.len()
-            }),
-            response.parse(String::from(raw_response) + trailer),
-        );
+                consumed
+            }) if consumed == raw_response.len()
+        ));
         assert!(response.body.is_empty());
     }
 
