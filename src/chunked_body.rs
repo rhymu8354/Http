@@ -1,15 +1,16 @@
+use super::{
+    error::Error,
+    find_crlf,
+    CRLF,
+};
 use rhymessage::MessageHeaders;
-use super::error::Error;
-use super::{CRLF, find_crlf};
 
 fn parse_chunk_size(chunk_size_line: &str) -> Result<usize, Error> {
-    let delimiter = chunk_size_line.find(
-        |c| c == ';' || c == '\r'
-    )
+    let delimiter = chunk_size_line
+        .find(|c| c == ';' || c == '\r')
         .unwrap_or_else(|| chunk_size_line.len());
     let chunk_size = &chunk_size_line[..delimiter];
-    usize::from_str_radix(chunk_size, 16)
-        .map_err(Error::InvalidChunkSize)
+    usize::from_str_radix(chunk_size, 16).map_err(Error::InvalidChunkSize)
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -47,9 +48,10 @@ impl ChunkedBody {
 
     pub fn decode<T>(
         &mut self,
-        input: T
+        input: T,
     ) -> Result<(DecodeStatus, usize), Error>
-        where T: AsRef<[u8]>
+    where
+        T: AsRef<[u8]>,
     {
         let input = input.as_ref();
         let mut total_consumed = 0;
@@ -77,14 +79,14 @@ impl ChunkedBody {
                 },
                 DecodeStatusInternal::Incomplete => {
                     return Ok((DecodeStatus::Incomplete, total_consumed));
-                }
+                },
             };
         }
     }
 
     fn decode_data(
         &mut self,
-        raw_message: &[u8]
+        raw_message: &[u8],
     ) -> (DecodeStatusInternal, usize) {
         let consumed = raw_message.len().min(self.chunk_bytes_needed);
         self.chunk_bytes_needed -= consumed;
@@ -99,16 +101,21 @@ impl ChunkedBody {
 
     fn decode_size(
         &mut self,
-        raw_message: &[u8]
+        raw_message: &[u8],
     ) -> Result<(DecodeStatusInternal, usize), Error> {
         match find_crlf(raw_message) {
             Some(chunk_size_line_end) => {
                 let chunk_size_line = &raw_message[0..chunk_size_line_end];
                 let chunk_size_line = std::str::from_utf8(chunk_size_line)
-                    .map_err(|_| Error::ChunkSizeLineNotValidText(chunk_size_line.to_vec()))?;
+                    .map_err(|_| {
+                        Error::ChunkSizeLineNotValidText(
+                            chunk_size_line.to_vec(),
+                        )
+                    })?;
                 let consumed = chunk_size_line_end + CRLF.len();
                 self.chunk_bytes_needed = parse_chunk_size(chunk_size_line)?;
-                self.buffer.reserve(self.buffer.len() + self.chunk_bytes_needed);
+                self.buffer
+                    .reserve(self.buffer.len() + self.chunk_bytes_needed);
                 self.state = match self.chunk_bytes_needed {
                     0 => ChunkedBodyState::Trailer,
                     _ => ChunkedBodyState::ChunkData,
@@ -121,7 +128,7 @@ impl ChunkedBody {
 
     fn decode_terminator(
         &mut self,
-        raw_message: &[u8]
+        raw_message: &[u8],
     ) -> Result<(DecodeStatusInternal, usize), Error> {
         match raw_message {
             [] | [b'\r'] => Ok((DecodeStatusInternal::Incomplete, 0)),
@@ -129,20 +136,21 @@ impl ChunkedBody {
                 self.state = ChunkedBodyState::ChunkSize;
                 Ok((DecodeStatusInternal::CompletePart, 2))
             },
-            _ => Err(Error::InvalidChunkTerminator(raw_message.to_vec()))
+            _ => Err(Error::InvalidChunkTerminator(raw_message.to_vec())),
         }
     }
 
     fn decode_trailer(
         &mut self,
-        raw_message: &[u8]
+        raw_message: &[u8],
     ) -> Result<(DecodeStatusInternal, usize), Error> {
-        let parse_results = self.trailer.parse(raw_message)
-            .map_err(Error::Trailer)?;
+        let parse_results =
+            self.trailer.parse(raw_message).map_err(Error::Trailer)?;
         match parse_results.status {
-            rhymessage::ParseStatus::Complete => {
-                Ok((DecodeStatusInternal::CompleteWhole, parse_results.consumed))
-            },
+            rhymessage::ParseStatus::Complete => Ok((
+                DecodeStatusInternal::CompleteWhole,
+                parse_results.consumed,
+            )),
             rhymessage::ParseStatus::Incomplete => {
                 Ok((DecodeStatusInternal::Incomplete, parse_results.consumed))
             },
@@ -150,7 +158,7 @@ impl ChunkedBody {
     }
 
     pub fn new() -> Self {
-        Self{
+        Self {
             buffer: Vec::new(),
             chunk_bytes_needed: 0,
             state: ChunkedBodyState::ChunkSize,
@@ -241,7 +249,12 @@ mod tests {
             match i {
                 0..=1 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkSize, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkSize,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(0, accepted);
                 },
                 2..=3 => {
@@ -252,7 +265,7 @@ mod tests {
                 _ => {
                     assert_eq!(DecodeStatus::Complete, status, "{}", i);
                     assert_eq!(5, accepted);
-                }
+                },
             }
         }
         assert_eq!(b"", body.as_bytes());
@@ -262,10 +275,7 @@ mod tests {
     fn decode_simple_empty_body_one_piece_with_extra_stuff_after() {
         let input = "0\r\n\r\nHello!";
         let mut body = ChunkedBody::new();
-        assert!(matches!(
-            body.decode(input),
-            Ok((DecodeStatus::Complete, 5))
-        ));
+        assert!(matches!(body.decode(input), Ok((DecodeStatus::Complete, 5))));
         assert_eq!(b"", body.as_bytes());
     }
 
@@ -307,22 +317,42 @@ mod tests {
             match i {
                 0..=1 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkSize, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkSize,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(0, accepted);
                 },
                 2..=6 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkData, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkData,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(i + 1, accepted);
                 },
                 7..=8 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkTerminator, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkTerminator,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(8, accepted);
                 },
                 9..=11 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkSize, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkSize,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(10, accepted);
                 },
                 12..=13 => {
@@ -333,7 +363,7 @@ mod tests {
                 _ => {
                     assert_eq!(DecodeStatus::Complete, status, "{}", i);
                     assert_eq!(15, accepted);
-                }
+                },
             }
         }
         assert_eq!(b"Hello", body.as_bytes());
@@ -365,37 +395,72 @@ mod tests {
             match i {
                 0..=1 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkSize, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkSize,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(0, accepted);
                 },
                 2..=7 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkData, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkData,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(i + 1, accepted);
                 },
                 8..=9 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkTerminator, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkTerminator,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(9, accepted);
                 },
                 10..=12 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkSize, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkSize,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(11, accepted);
                 },
                 13..=19 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkData, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkData,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(i + 1, accepted);
                 },
                 20..=21 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkTerminator, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkTerminator,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(21, accepted);
                 },
                 22..=24 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkSize, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkSize,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(23, accepted);
                 },
                 25..=26 => {
@@ -406,7 +471,7 @@ mod tests {
                 _ => {
                     assert_eq!(DecodeStatus::Complete, status, "{}", i);
                     assert_eq!(28, accepted);
-                }
+                },
             }
         }
         assert_eq!(b"Hello, World!", body.as_bytes());
@@ -423,11 +488,11 @@ mod tests {
         assert_eq!(b"", body.as_bytes());
         assert_eq!(
             &vec![
-                rhymessage::Header{
+                rhymessage::Header {
                     name: "X-Foo".into(),
                     value: "Bar".into(),
                 },
-                rhymessage::Header{
+                rhymessage::Header {
                     name: "X-Poggers".into(),
                     value: "FeelsBadMan".into(),
                 },
@@ -451,7 +516,12 @@ mod tests {
             match i {
                 0..=1 => {
                     assert_eq!(DecodeStatus::Incomplete, status, "{}", i);
-                    assert_eq!(ChunkedBodyState::ChunkSize, body.state, "{}", i);
+                    assert_eq!(
+                        ChunkedBodyState::ChunkSize,
+                        body.state,
+                        "{}",
+                        i
+                    );
                     assert_eq!(0, accepted);
                 },
                 2..=37 => {
@@ -467,17 +537,17 @@ mod tests {
                 _ => {
                     assert_eq!(DecodeStatus::Complete, status, "{}", i);
                     assert_eq!(41, accepted);
-                }
+                },
             }
         }
         assert_eq!(b"", body.as_bytes());
         assert_eq!(
             &vec![
-                rhymessage::Header{
+                rhymessage::Header {
                     name: "X-Foo".into(),
                     value: "Bar".into(),
                 },
-                rhymessage::Header{
+                rhymessage::Header {
                     name: "X-Poggers".into(),
                     value: "FeelsBadMan".into(),
                 },
@@ -490,10 +560,7 @@ mod tests {
     fn decode_bad_chunk_size_line_not_hexdig_in_chunk_size() {
         let input = "0g\r\n\r\n";
         let mut body = ChunkedBody::new();
-        assert!(matches!(
-            body.decode(input),
-            Err(Error::InvalidChunkSize(_))
-        ));
+        assert!(matches!(body.decode(input), Err(Error::InvalidChunkSize(_))));
     }
 
     #[test]
@@ -527,5 +594,4 @@ mod tests {
             )) if line == "X-Foo Bar"
         ));
     }
-
 }

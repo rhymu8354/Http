@@ -1,30 +1,40 @@
+use super::{
+    error::Error,
+    find_crlf,
+    CRLF,
+};
 use rhymessage::MessageHeaders;
 use rhymuri::Uri;
 use std::io::Write;
-use super::error::Error;
-use super::CRLF;
-use super::find_crlf;
 
 fn parse_request_line(request_line: &str) -> Result<(&str, Uri), Error> {
     // Parse the method.
-    let method_delimiter = request_line.find(' ')
-        .ok_or_else(|| Error::RequestLineNoMethodDelimiter(request_line.into()))?;
+    let method_delimiter = request_line.find(' ').ok_or_else(|| {
+        Error::RequestLineNoMethodDelimiter(request_line.into())
+    })?;
     let method = &request_line[0..method_delimiter];
     if method.is_empty() {
-        return Err(Error::RequestLineNoMethodOrExtraWhitespace(request_line.into()));
+        return Err(Error::RequestLineNoMethodOrExtraWhitespace(
+            request_line.into(),
+        ));
     }
 
     // Parse the target URI.
-    let request_line_at_target = &request_line[method_delimiter+1..];
-    let target_delimiter = request_line_at_target.find(' ')
-        .ok_or_else(|| Error::RequestLineNoTargetDelimiter(request_line.into()))?;
+    let request_line_at_target = &request_line[method_delimiter + 1..];
+    let target_delimiter =
+        request_line_at_target.find(' ').ok_or_else(|| {
+            Error::RequestLineNoTargetDelimiter(request_line.into())
+        })?;
     if target_delimiter == 0 {
-        return Err(Error::RequestLineNoTargetOrExtraWhitespace(request_line.into()));
+        return Err(Error::RequestLineNoTargetOrExtraWhitespace(
+            request_line.into(),
+        ));
     }
     let target = Uri::parse(&request_line_at_target[..target_delimiter])?;
 
     // Parse the protocol.
-    let request_line_at_protocol = &request_line_at_target[target_delimiter+1..];
+    let request_line_at_protocol =
+        &request_line_at_target[target_delimiter + 1..];
     if request_line_at_protocol == "HTTP/1.1" {
         Ok((method, target))
     } else {
@@ -94,8 +104,9 @@ pub struct Request {
     /// part of the request, which is defined in [IETF RFC 7230 section
     /// 3.1.1](https://tools.ietf.org/html/rfc7230#section-3.1.1).  The
     /// [`parse`](#method.parse) function will return a
-    /// [`Error::RequestLineTooLong`](enum.Error.html#variant.RequestLineTooLong)
-    /// error if the input going into the request line exceeds this size.
+    /// [`Error::RequestLineTooLong`](enum.Error.html#variant.
+    /// RequestLineTooLong) error if the input going into the request line
+    /// exceeds this size.
     pub request_line_limit: Option<usize>,
 
     state: RequestState,
@@ -110,13 +121,16 @@ pub struct Request {
 }
 
 impl Request {
-    fn count_bytes(&mut self, bytes: usize) -> Result<(), Error> {
+    fn count_bytes(
+        &mut self,
+        bytes: usize,
+    ) -> Result<(), Error> {
         self.total_bytes += bytes;
         match self.max_message_size {
             Some(max_message_size) if self.total_bytes > max_message_size => {
                 Err(Error::MessageTooLong)
             },
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 
@@ -128,9 +142,9 @@ impl Request {
     ///   URI, and protocol identifier.
     /// * The request header lines follow the request line.
     /// * An empty text line follows the header lines.
-    /// * The body, if any, appears last.  Its length is determined either
-    ///   by the "Content-Length" header, if present, or by the transfer
-    ///   coding technique(s) listed in the "Transfer-Encoding" header.
+    /// * The body, if any, appears last.  Its length is determined either by
+    ///   the "Content-Length" header, if present, or by the transfer coding
+    ///   technique(s) listed in the "Transfer-Encoding" header.
     ///
     /// # Examples
     ///
@@ -183,7 +197,7 @@ impl Request {
     /// no headers or body, and default limit constraints.
     #[must_use]
     pub fn new() -> Self {
-        let mut request = Self{
+        let mut request = Self {
             body: Vec::new(),
             headers: MessageHeaders::new(),
             max_message_size: Some(10_000_000),
@@ -263,52 +277,57 @@ impl Request {
     ///
     /// # Errors
     ///
-    /// * [`Error::RequestLineTooLong`](enum.Error.html#variant.RequestLineTooLong)
-    ///   &ndash; the request line in the request exceeds the maximum size
-    ///   constraint set in the
+    /// * [`Error::RequestLineTooLong`](enum.Error.html#variant.
+    ///   RequestLineTooLong) &ndash; the request line in the request exceeds
+    ///   the maximum size constraint set in the
     ///   [`request_line_limit`](#structfield.request_line_limit) field
-    /// * [`Error::RequestLineNotValidText`](enum.Error.html#variant.RequestLineNotValidText)
-    ///   &ndash; the request line contained bytes which could not be decoded
-    ///   as valid UTF-8 text
-    /// * [`Error::RequestLineNoMethodDelimiter`](enum.Error.html#variant.RequestLineNoMethodDelimiter)
-    ///   &ndash; the method part of the request line could not be parsed
-    ///   because no space character delimiting the method from the target URI
-    ///   could be found
-    /// * [`Error::RequestLineNoMethodOrExtraWhitespace`](enum.Error.html#variant.RequestLineNoMethodOrExtraWhitespace)
-    ///   &ndash; the method part of the request line is either empty or there
-    ///   is extra whitespace before it
-    /// * [`Error::RequestLineNoTargetDelimiter`](enum.Error.html#variant.RequestLineNoTargetDelimiter)
-    ///   &ndash; the target URI part of the request line could not be parsed
-    ///   because no space character delimiting the target URI from the
-    ///   protocol identifier could be found
-    /// * [`Error::RequestLineNoTargetOrExtraWhitespace`](enum.Error.html#variant.RequestLineNoTargetOrExtraWhitespace)
-    ///   &ndash; the target URI part of the request line is either empty or
-    ///   there is extra whitespace before it
-    /// * [`Error::RequestLineProtocol`](enum.Error.html#variant.RequestLineProtocol)
-    ///   &ndash; the protocol identifier part of the request line is either
-    ///   missing or does not match "HTTP/1.1"
+    /// * [`Error::RequestLineNotValidText`](enum.Error.html#variant.
+    ///   RequestLineNotValidText) &ndash; the request line contained bytes
+    ///   which could not be decoded as valid UTF-8 text
+    /// * [`Error::RequestLineNoMethodDelimiter`](enum.Error.html#variant.
+    ///   RequestLineNoMethodDelimiter) &ndash; the method part of the request
+    ///   line could not be parsed because no space character delimiting the
+    ///   method from the target URI could be found
+    /// * [`Error::RequestLineNoMethodOrExtraWhitespace`](enum.Error.html#
+    ///   variant.RequestLineNoMethodOrExtraWhitespace) &ndash; the method part
+    ///   of the request line is either empty or there is extra whitespace
+    ///   before it
+    /// * [`Error::RequestLineNoTargetDelimiter`](enum.Error.html#variant.
+    ///   RequestLineNoTargetDelimiter) &ndash; the target URI part of the
+    ///   request line could not be parsed because no space character delimiting
+    ///   the target URI from the protocol identifier could be found
+    /// * [`Error::RequestLineNoTargetOrExtraWhitespace`](enum.Error.html#
+    ///   variant.RequestLineNoTargetOrExtraWhitespace) &ndash; the target URI
+    ///   part of the request line is either empty or there is extra whitespace
+    ///   before it
+    /// * [`Error::RequestLineProtocol`](enum.Error.html#variant.
+    ///   RequestLineProtocol) &ndash; the protocol identifier part of the
+    ///   request line is either missing or does not match "HTTP/1.1"
     /// * [`Error::Headers`](enum.Error.html#variant.Headers) &ndash; an error
     ///   occurred parsing the request headers
     /// * [`Error::MessageTooLong`](enum.Error.html#variant.MessageTooLong)
     ///   &ndash; the request exceeds the maximum size constraint set in the
     ///   [`max_message_size`](#structfield.max_message_size) field
-    /// * [`Error::InvalidContentLength`](enum.Error.html#variant.InvalidContentLength)
-    ///   &ndash; the value of the "Content-Length" header of the request
-    ///   could not be parsed
+    /// * [`Error::InvalidContentLength`](enum.Error.html#variant.
+    ///   InvalidContentLength) &ndash; the value of the "Content-Length" header
+    ///   of the request could not be parsed
     pub fn parse<T>(
         &mut self,
-        raw_message: T
+        raw_message: T,
     ) -> Result<ParseResults, Error>
-        where T: AsRef<[u8]>
+    where
+        T: AsRef<[u8]>,
     {
         let raw_message = raw_message.as_ref();
         let mut total_consumed = 0;
         loop {
             let raw_message_remainder = &raw_message[total_consumed..];
             let (parse_status, consumed) = match self.state {
-                RequestState::Body(content_length) => {
-                    self.parse_message_for_body(raw_message_remainder, content_length)
-                },
+                RequestState::Body(content_length) => self
+                    .parse_message_for_body(
+                        raw_message_remainder,
+                        content_length,
+                    ),
                 RequestState::Headers => {
                     self.parse_message_for_headers(raw_message_remainder)?
                 },
@@ -320,17 +339,17 @@ impl Request {
             match parse_status {
                 ParseStatusInternal::CompletePart => (),
                 ParseStatusInternal::CompleteWhole => {
-                    return Ok(ParseResults{
+                    return Ok(ParseResults {
                         status: ParseStatus::Complete,
-                        consumed: total_consumed
+                        consumed: total_consumed,
                     });
                 },
                 ParseStatusInternal::Incomplete => {
-                    return Ok(ParseResults{
+                    return Ok(ParseResults {
                         status: ParseStatus::Incomplete,
-                        consumed: total_consumed
+                        consumed: total_consumed,
                     });
-                }
+                },
             };
         }
     }
@@ -352,22 +371,31 @@ impl Request {
 
     fn parse_message_for_headers(
         &mut self,
-        raw_message: &[u8]
+        raw_message: &[u8],
     ) -> Result<(ParseStatusInternal, usize), Error> {
-        let parse_results = self.headers.parse(raw_message)
-            .map_err(Error::Headers)?;
+        let parse_results =
+            self.headers.parse(raw_message).map_err(Error::Headers)?;
         self.count_bytes(parse_results.consumed)?;
         match parse_results.status {
             rhymessage::ParseStatus::Complete => {
-                if let Some(content_length) = self.headers.header_value("Content-Length") {
-                    let content_length = content_length.parse::<usize>()
+                if let Some(content_length) =
+                    self.headers.header_value("Content-Length")
+                {
+                    let content_length = content_length
+                        .parse::<usize>()
                         .map_err(Error::InvalidContentLength)?;
                     self.count_bytes(content_length)?;
                     self.body.reserve(content_length);
                     self.state = RequestState::Body(content_length);
-                    Ok((ParseStatusInternal::CompletePart, parse_results.consumed))
+                    Ok((
+                        ParseStatusInternal::CompletePart,
+                        parse_results.consumed,
+                    ))
                 } else {
-                    Ok((ParseStatusInternal::CompleteWhole, parse_results.consumed))
+                    Ok((
+                        ParseStatusInternal::CompleteWhole,
+                        parse_results.consumed,
+                    ))
                 }
             },
             rhymessage::ParseStatus::Incomplete => {
@@ -378,16 +406,20 @@ impl Request {
 
     fn parse_message_for_request_line(
         &mut self,
-        raw_message: &[u8]
+        raw_message: &[u8],
     ) -> Result<(ParseStatusInternal, usize), Error> {
         match (find_crlf(raw_message), self.request_line_limit) {
-            (Some(request_line_end), Some(limit)) if request_line_end > limit => {
+            (Some(request_line_end), Some(limit))
+                if request_line_end > limit =>
+            {
                 Err(Error::RequestLineTooLong(raw_message[..limit].to_vec()))
             },
             (Some(request_line_end), _) => {
                 let request_line = &raw_message[0..request_line_end];
-                let request_line = std::str::from_utf8(request_line)
-                    .map_err(|_| Error::RequestLineNotValidText(request_line.to_vec()))?;
+                let request_line =
+                    std::str::from_utf8(request_line).map_err(|_| {
+                        Error::RequestLineNotValidText(request_line.to_vec())
+                    })?;
                 let consumed = request_line_end + CRLF.len();
                 self.count_bytes(consumed)?;
                 self.state = RequestState::Headers;
@@ -413,8 +445,8 @@ impl Default for Request {
 #[cfg(test)]
 mod tests {
 
-    use rhymessage::Header;
     use super::*;
+    use rhymessage::Header;
 
     #[test]
     fn generate_get_request() {
@@ -442,9 +474,9 @@ mod tests {
         request.headers.set_header("Host", "www.example.com");
         request.headers.set_header("Content-Type", "text/plain");
         request.body = "FeelsGoodMan".into();
-        request.headers.add_header(Header{
+        request.headers.add_header(Header {
             name: "Content-Length".into(),
-            value: format!("{}", request.body.len())
+            value: format!("{}", request.body.len()),
         });
         assert!(matches!(
             request.generate(),
@@ -519,9 +551,10 @@ mod tests {
         assert_eq!("GET", request.method);
         let mut expected_uri = Uri::default();
         expected_uri.set_path(
-            ["", "💩.txt"].iter()
+            ["", "💩.txt"]
+                .iter()
                 .map(|segment| segment.as_bytes().to_vec())
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
         );
         assert_eq!(expected_uri, request.target);
         assert!(request.headers.has_header("User-Agent"));
@@ -585,10 +618,7 @@ mod tests {
             Some(format!("{}", raw_request_body.len())),
             request.headers.header_value("Content-Length")
         );
-        assert_eq!(
-            raw_request_body.as_bytes(),
-            request.body
-        );
+        assert_eq!(raw_request_body.as_bytes(), request.body);
     }
 
     #[test]
@@ -713,16 +743,17 @@ mod tests {
     #[test]
     fn parse_invalid_header_line_too_long() {
         let test_header_name = "X-Poggers";
-        let test_header_name_with_delimiters = String::from(test_header_name) + ": ";
-        let value_is_too_long = "X".repeat(
-            999 - test_header_name_with_delimiters.len()
-        );
-        let too_long_header = test_header_name_with_delimiters
-            + &value_is_too_long + "\r\n";
+        let test_header_name_with_delimiters =
+            String::from(test_header_name) + ": ";
+        let value_is_too_long =
+            "X".repeat(999 - test_header_name_with_delimiters.len());
+        let too_long_header =
+            test_header_name_with_delimiters + &value_is_too_long + "\r\n";
         let raw_request = concat!(
             "GET /hello.txt HTTP/1.1\r\n",
             "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n",
-        ).to_string()
+        )
+        .to_string()
             + &too_long_header
             + "Host: www.example.com\r\n"
             + "Accept-Language: en, mi\r\n"
@@ -738,16 +769,18 @@ mod tests {
     #[test]
     fn parse_valid_header_line_longer_than_default() {
         let test_header_name = "X-Poggers";
-        let test_header_name_with_delimiters = String::from(test_header_name) + ": ";
-        let value_is_long_but_within_custom_limit = "X".repeat(
-            999 - test_header_name_with_delimiters.len()
-        );
+        let test_header_name_with_delimiters =
+            String::from(test_header_name) + ": ";
+        let value_is_long_but_within_custom_limit =
+            "X".repeat(999 - test_header_name_with_delimiters.len());
         let raw_request = concat!(
             "GET /hello.txt HTTP/1.1\r\n",
             "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n",
-        ).to_string()
+        )
+        .to_string()
             + &test_header_name_with_delimiters
-            + &value_is_long_but_within_custom_limit + "\r\n"
+            + &value_is_long_but_within_custom_limit
+            + "\r\n"
             + "Host: www.example.com\r\n"
             + "Accept-Language: en, mi\r\n"
             + "\r\n";
@@ -818,10 +851,8 @@ mod tests {
 
     #[test]
     fn parse_incomplete_headers_between_lines_request() {
-        let raw_request_first_part = concat!(
-            "POST / HTTP/1.1\r\n",
-            "Host: foo.com\r\n",
-        );
+        let raw_request_first_part =
+            concat!("POST / HTTP/1.1\r\n", "Host: foo.com\r\n",);
         let raw_request = String::from(raw_request_first_part)
             + "Content-Type: application/x-www-form-urlencoded\r\n";
         let mut request = Request::new();
@@ -836,9 +867,7 @@ mod tests {
 
     #[test]
     fn parse_incomplete_headers_mid_line_request() {
-        let raw_request_first_part = concat!(
-            "POST / HTTP/1.1\r\n",
-        );
+        let raw_request_first_part = concat!("POST / HTTP/1.1\r\n",);
         let raw_request = String::from(raw_request_first_part)
             + "Host: foo.com\r\n"
             + "Content-Type: application/x-w";
@@ -858,7 +887,7 @@ mod tests {
         let mut request = Request::new();
         assert!(matches!(
             request.parse(raw_request),
-            Ok(ParseResults{
+            Ok(ParseResults {
                 status: ParseStatus::Incomplete,
                 consumed: 0
             })
@@ -879,7 +908,8 @@ mod tests {
     }
 
     #[test]
-    fn request_with_no_content_length_or_chunked_transfer_encoding_has_no_body() {
+    fn request_with_no_content_length_or_chunked_transfer_encoding_has_no_body()
+    {
         let raw_request = concat!(
             "GET /hello.txt HTTP/1.1\r\n",
             "User-Agent: curl/7.16.3 libcurl/7.16.3 OpenSSL/0.9.7l zlib/1.2.3\r\n",
@@ -887,8 +917,8 @@ mod tests {
             "Accept-Language: en, mi\r\n",
             "\r\n",
         );
-        let raw_request_with_extra = String::from(raw_request)
-             + "Hello, World!\r\n";
+        let raw_request_with_extra =
+            String::from(raw_request) + "Hello, World!\r\n";
         let mut request = Request::new();
         assert!(matches!(
             request.parse(raw_request_with_extra),
@@ -903,8 +933,8 @@ mod tests {
     #[test]
     fn parse_invalid_request_line_too_long() {
         let uri_too_long = "X".repeat(1000);
-        let raw_request = String::from("GET ")
-            + &uri_too_long + " HTTP/1.1\r\n";
+        let raw_request =
+            String::from("GET ") + &uri_too_long + " HTTP/1.1\r\n";
         let mut request = Request::new();
         assert!(matches!(
             request.parse(&raw_request),
@@ -981,5 +1011,4 @@ mod tests {
             Err(Error::MessageTooLong)
         ));
     }
-
 }

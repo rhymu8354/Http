@@ -50,16 +50,18 @@ mod error;
 mod request;
 mod response;
 
-pub use crate::error::Error;
-pub use crate::request::{
-    Request,
-    ParseResults as RequestParseResults,
-    ParseStatus as RequestParseStatus,
-};
-pub use crate::response::{
-    Response,
-    ParseResults as ResponseParseResults,
-    ParseStatus as ResponseParseStatus,
+pub use crate::{
+    error::Error,
+    request::{
+        ParseResults as RequestParseResults,
+        ParseStatus as RequestParseStatus,
+        Request,
+    },
+    response::{
+        ParseResults as ResponseParseResults,
+        ParseStatus as ResponseParseStatus,
+        Response,
+    },
 };
 
 // This is the character sequence corresponding to a carriage return (CR)
@@ -68,9 +70,14 @@ pub use crate::response::{
 const CRLF: &str = "\r\n";
 
 fn find_crlf<T>(message: T) -> Option<usize>
-    where T: AsRef<[u8]>
+where
+    T: AsRef<[u8]>,
 {
-    message.as_ref().windows(2)
-        .enumerate()
-        .find_map(|(i, window)| if window == b"\r\n" { Some(i) } else { None })
+    message.as_ref().windows(2).enumerate().find_map(|(i, window)| {
+        if window == b"\r\n" {
+            Some(i)
+        } else {
+            None
+        }
+    })
 }

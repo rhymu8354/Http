@@ -1,23 +1,36 @@
-use rhymessage::{Header, MessageHeaders};
+use super::{
+    chunked_body::{
+        ChunkedBody,
+        DecodeStatus as ChunkedBodyDecodeStatus,
+    },
+    error::Error,
+    find_crlf,
+    CRLF,
+};
+use rhymessage::{
+    Header,
+    MessageHeaders,
+};
 use std::io::Write;
-use super::chunked_body::{ChunkedBody, DecodeStatus as ChunkedBodyDecodeStatus};
-use super::error::Error;
-use super::{CRLF, find_crlf};
 
 fn parse_status_line(status_line: &str) -> Result<(usize, &str), Error> {
     // Parse the protocol.
-    let protocol_delimiter = status_line.find(' ')
-        .ok_or_else(|| Error::StatusLineNoProtocolDelimiter(status_line.into()))?;
+    let protocol_delimiter = status_line.find(' ').ok_or_else(|| {
+        Error::StatusLineNoProtocolDelimiter(status_line.into())
+    })?;
     let protocol = &status_line[..protocol_delimiter];
     if protocol != "HTTP/1.1" {
-        return Err(Error::StatusLineProtocol(status_line.into()))
+        return Err(Error::StatusLineProtocol(status_line.into()));
     }
 
     // Parse the status code.
-    let status_line_at_status_code = &status_line[protocol_delimiter+1..];
-    let status_code_delimiter = status_line_at_status_code.find(' ')
-        .ok_or_else(|| Error::StatusLineNoStatusCodeDelimiter(status_line.into()))?;
-    let status_code = status_line_at_status_code[..status_code_delimiter].parse::<usize>()
+    let status_line_at_status_code = &status_line[protocol_delimiter + 1..];
+    let status_code_delimiter =
+        status_line_at_status_code.find(' ').ok_or_else(|| {
+            Error::StatusLineNoStatusCodeDelimiter(status_line.into())
+        })?;
+    let status_code = status_line_at_status_code[..status_code_delimiter]
+        .parse::<usize>()
         .map_err(Error::InvalidStatusCode)
         .and_then(|status_code| match status_code {
             status_code if status_code < 1000 => Ok(status_code),
@@ -25,7 +38,8 @@ fn parse_status_line(status_line: &str) -> Result<(usize, &str), Error> {
         })?;
 
     // Parse the reason phrase.
-    let reason_phrase = &status_line_at_status_code[status_code_delimiter+1..];
+    let reason_phrase =
+        &status_line_at_status_code[status_code_delimiter + 1..];
     Ok((status_code, reason_phrase))
 }
 
@@ -110,8 +124,8 @@ impl Response {
     ///   numeric status code, and reason phrase.
     /// * The response header lines follow the status line.
     /// * An empty text line follows the header lines.
-    /// * The body, if any, appears last.  Its length is determined by
-    ///   the "Content-Length" header.
+    /// * The body, if any, appears last.  Its length is determined by the
+    ///   "Content-Length" header.
     ///
     /// # Examples
     ///
@@ -174,8 +188,12 @@ impl Response {
     ///   properly.
     pub fn generate(&self) -> Result<Vec<u8>, Error> {
         let mut output = Vec::new();
-        write!(&mut output, "HTTP/1.1 {} {}\r\n", self.status_code, self.reason_phrase)
-            .map_err(|_| Error::StringFormat)?;
+        write!(
+            &mut output,
+            "HTTP/1.1 {} {}\r\n",
+            self.status_code, self.reason_phrase
+        )
+        .map_err(|_| Error::StringFormat)?;
         output.append(&mut self.headers.generate().map_err(Error::Headers)?);
         output.extend(&self.body);
         Ok(output)
@@ -185,7 +203,7 @@ impl Response {
     /// phrase ("OK"), and no headers or body.
     #[must_use]
     pub fn new() -> Self {
-        Self{
+        Self {
             body: Vec::new(),
             headers: MessageHeaders::new(),
             reason_phrase: "OK".into(),
@@ -282,47 +300,50 @@ impl Response {
     ///
     /// # Errors
     ///
-    /// * [`Error::StatusLineNotValidText`](enum.Error.html#variant.StatusLineNotValidText)
-    ///   &ndash; the status line contained bytes which could not be decoded
-    ///   as valid UTF-8 text
-    /// * [`Error::StatusLineNoProtocolDelimiter`](enum.Error.html#variant.StatusLineNoProtocolDelimiter)
-    ///   &ndash; the protocol identifier part of the status line could not
-    ///   be parsed because no space character delimiting the protocol
-    ///   identifier from the numeric status code could be found
-    /// * [`Error::StatusLineProtocol`](enum.Error.html#variant.StatusLineProtocol)
-    ///   &ndash; the protocol identifier part of the status line is either
-    ///   missing or does not match "HTTP/1.1"
-    /// * [`Error::StatusLineNoStatusCodeDelimiter`](enum.Error.html#variant.StatusLineNoStatusCodeDelimiter)
-    ///   &ndash; the numeric status code part of the status line could not be
-    ///   parsed because no space character delimiting the numeric status code
-    ///   from the reason phrase could be found
-    /// * [`Error::InvalidStatusCode`](enum.Error.html#variant.InvalidStatusCode)
-    ///   &ndash; the value of the numeric status code in the status line could
-    ///   not be parsed
-    /// * [`Error::StatusCodeOutOfRange`](enum.Error.html#variant.StatusCodeOutOfRange)
-    ///   &ndash; the value of the numeric status code in the status line is
-    ///   greater than 999, the maximum permitted value
+    /// * [`Error::StatusLineNotValidText`](enum.Error.html#variant.
+    ///   StatusLineNotValidText) &ndash; the status line contained bytes which
+    ///   could not be decoded as valid UTF-8 text
+    /// * [`Error::StatusLineNoProtocolDelimiter`](enum.Error.html#variant.
+    ///   StatusLineNoProtocolDelimiter) &ndash; the protocol identifier part of
+    ///   the status line could not be parsed because no space character
+    ///   delimiting the protocol identifier from the numeric status code could
+    ///   be found
+    /// * [`Error::StatusLineProtocol`](enum.Error.html#variant.
+    ///   StatusLineProtocol) &ndash; the protocol identifier part of the status
+    ///   line is either missing or does not match "HTTP/1.1"
+    /// * [`Error::StatusLineNoStatusCodeDelimiter`](enum.Error.html#variant.
+    ///   StatusLineNoStatusCodeDelimiter) &ndash; the numeric status code part
+    ///   of the status line could not be parsed because no space character
+    ///   delimiting the numeric status code from the reason phrase could be
+    ///   found
+    /// * [`Error::InvalidStatusCode`](enum.Error.html#variant.
+    ///   InvalidStatusCode) &ndash; the value of the numeric status code in the
+    ///   status line could not be parsed
+    /// * [`Error::StatusCodeOutOfRange`](enum.Error.html#variant.
+    ///   StatusCodeOutOfRange) &ndash; the value of the numeric status code in
+    ///   the status line is greater than 999, the maximum permitted value
     /// * [`Error::Headers`](enum.Error.html#variant.Headers) &ndash; an error
     ///   occurred parsing the response headers
-    /// * [`Error::InvalidContentLength`](enum.Error.html#variant.InvalidContentLength)
-    ///   &ndash; the value of the "Content-Length" header of the response
-    ///   could not be parsed
-    /// * [`Error::ChunkSizeLineNotValidText`](enum.Error.html#variant.ChunkSizeLineNotValidText)
-    ///   &ndash; a chunk size line contained bytes which could not be decoded
-    ///   as valid UTF-8 text
+    /// * [`Error::InvalidContentLength`](enum.Error.html#variant.
+    ///   InvalidContentLength) &ndash; the value of the "Content-Length" header
+    ///   of the response could not be parsed
+    /// * [`Error::ChunkSizeLineNotValidText`](enum.Error.html#variant.
+    ///   ChunkSizeLineNotValidText) &ndash; a chunk size line contained bytes
+    ///   which could not be decoded as valid UTF-8 text
     /// * [`Error::InvalidChunkSize`](enum.Error.html#variant.InvalidChunkSize)
     ///   &ndash; the value of a chunk size could not be parsed
-    /// * [`Error::InvalidChunkTerminator`](enum.Error.html#variant.InvalidChunkTerminator)
-    ///   &ndash; extra junk was found at the end of a chunk rather than
-    ///   carriage-return and line-feed, which are required
+    /// * [`Error::InvalidChunkTerminator`](enum.Error.html#variant.
+    ///   InvalidChunkTerminator) &ndash; extra junk was found at the end of a
+    ///   chunk rather than carriage-return and line-feed, which are required
     /// * [`Error::Trailer`](enum.Error.html#variant.Trailer) &ndash; an error
     ///   occurred parsing the headers contained in the trailer for the
     ///   chunked-encoded body
     pub fn parse<T>(
         &mut self,
-        raw_message: T
+        raw_message: T,
     ) -> Result<ParseResults, Error>
-        where T: AsRef<[u8]>
+    where
+        T: AsRef<[u8]>,
     {
         let raw_message = raw_message.as_ref();
         let mut total_consumed = 0;
@@ -330,18 +351,22 @@ impl Response {
             let raw_message_remainder = &raw_message[total_consumed..];
             let state = std::mem::take(&mut self.state);
             let (parse_status, state, consumed) = match state {
-                ResponseState::ChunkedBody(chunked_body) => {
-                    self.parse_message_for_chunked_body(
+                ResponseState::ChunkedBody(chunked_body) => self
+                    .parse_message_for_chunked_body(
                         raw_message_remainder,
-                        chunked_body
-                    )?
-                },
+                        chunked_body,
+                    )?,
                 ResponseState::FixedBody(content_length) => {
-                    let (parse_status, consumed) = self.parse_message_for_fixed_body(
-                        raw_message_remainder,
-                        content_length
-                    )?;
-                    (parse_status, ResponseState::FixedBody(content_length), consumed)
+                    let (parse_status, consumed) = self
+                        .parse_message_for_fixed_body(
+                            raw_message_remainder,
+                            content_length,
+                        )?;
+                    (
+                        parse_status,
+                        ResponseState::FixedBody(content_length),
+                        consumed,
+                    )
                 },
                 ResponseState::Headers => {
                     self.parse_message_for_headers(raw_message_remainder)?
@@ -355,17 +380,17 @@ impl Response {
             match parse_status {
                 ParseStatusInternal::CompletePart => (),
                 ParseStatusInternal::CompleteWhole => {
-                    return Ok(ParseResults{
+                    return Ok(ParseResults {
                         status: ParseStatus::Complete,
-                        consumed: total_consumed
+                        consumed: total_consumed,
                     });
                 },
                 ParseStatusInternal::Incomplete => {
-                    return Ok(ParseResults{
+                    return Ok(ParseResults {
                         status: ParseStatus::Incomplete,
-                        consumed: total_consumed
+                        consumed: total_consumed,
                     });
-                }
+                },
             };
         }
     }
@@ -385,34 +410,33 @@ impl Response {
                 // Now that we've decoded the chunked body, we should remove
                 // the "chunked" token from the `Transfer-Encoding` header,
                 // and add a `Content-Length` header.
-                let mut transfer_encodings = self.headers.header_tokens("Transfer-Encoding");
+                let mut transfer_encodings =
+                    self.headers.header_tokens("Transfer-Encoding");
                 transfer_encodings.pop();
                 if transfer_encodings.is_empty() {
                     self.headers.remove_header("Transfer-Encoding");
                 } else {
                     self.headers.set_header(
                         "Transfer-Encoding",
-                        transfer_encodings.join(" ")
+                        transfer_encodings.join(" "),
                     );
                 }
-                self.headers.add_header(Header{
+                self.headers.add_header(Header {
                     name: "Content-Length".into(),
-                    value: self.body.len().to_string()
+                    value: self.body.len().to_string(),
                 });
                 self.headers.remove_header("Trailer");
                 Ok((
                     ParseStatusInternal::CompleteWhole,
                     ResponseState::default(),
-                    consumed
+                    consumed,
                 ))
             },
-            (ChunkedBodyDecodeStatus::Incomplete, consumed) => {
-                Ok((
-                    ParseStatusInternal::Incomplete,
-                    ResponseState::ChunkedBody(chunked_body),
-                    consumed
-                ))
-            },
+            (ChunkedBodyDecodeStatus::Incomplete, consumed) => Ok((
+                ParseStatusInternal::Incomplete,
+                ResponseState::ChunkedBody(chunked_body),
+                consumed,
+            )),
         }
     }
 
@@ -431,74 +455,81 @@ impl Response {
                 self.body.extend(raw_message);
                 ParseStatusInternal::Incomplete
             },
-            raw_message.len()
+            raw_message.len(),
         ))
     }
 
     fn parse_message_for_headers(
         &mut self,
-        raw_message: &[u8]
+        raw_message: &[u8],
     ) -> Result<(ParseStatusInternal, ResponseState, usize), Error> {
-        let parse_results = self.headers.parse(raw_message)
-            .map_err(Error::Headers)?;
+        let parse_results =
+            self.headers.parse(raw_message).map_err(Error::Headers)?;
         match parse_results.status {
             rhymessage::ParseStatus::Complete => {
-                if let Some(content_length) = self.headers.header_value("Content-Length") {
-                    let content_length = content_length.parse::<usize>()
+                if let Some(content_length) =
+                    self.headers.header_value("Content-Length")
+                {
+                    let content_length = content_length
+                        .parse::<usize>()
                         .map_err(Error::InvalidContentLength)?;
                     self.body.reserve(content_length);
                     Ok((
                         ParseStatusInternal::CompletePart,
                         ResponseState::FixedBody(content_length),
-                        parse_results.consumed
+                        parse_results.consumed,
                     ))
-                } else if self.headers.has_header_token("Transfer-Encoding", "chunked") {
+                } else if self
+                    .headers
+                    .has_header_token("Transfer-Encoding", "chunked")
+                {
                     Ok((
                         ParseStatusInternal::CompletePart,
                         ResponseState::ChunkedBody(ChunkedBody::new()),
-                        parse_results.consumed
+                        parse_results.consumed,
                     ))
                 } else {
                     Ok((
                         ParseStatusInternal::CompleteWhole,
                         ResponseState::Headers,
-                        parse_results.consumed
+                        parse_results.consumed,
                     ))
                 }
             },
-            rhymessage::ParseStatus::Incomplete => {
-                Ok((
-                    ParseStatusInternal::Incomplete,
-                    ResponseState::Headers,
-                    parse_results.consumed
-                ))
-            },
+            rhymessage::ParseStatus::Incomplete => Ok((
+                ParseStatusInternal::Incomplete,
+                ResponseState::Headers,
+                parse_results.consumed,
+            )),
         }
     }
 
     fn parse_message_for_status_line(
         &mut self,
-        raw_message: &[u8]
+        raw_message: &[u8],
     ) -> Result<(ParseStatusInternal, ResponseState, usize), Error> {
         match find_crlf(raw_message) {
             Some(status_line_end) => {
                 let status_line = &raw_message[0..status_line_end];
-                let status_line = std::str::from_utf8(status_line)
-                    .map_err(|_| Error::StatusLineNotValidText(status_line.to_vec()))?;
+                let status_line =
+                    std::str::from_utf8(status_line).map_err(|_| {
+                        Error::StatusLineNotValidText(status_line.to_vec())
+                    })?;
                 let consumed = status_line_end + CRLF.len();
-                let (status_code, reason_phrase) = parse_status_line(status_line)?;
+                let (status_code, reason_phrase) =
+                    parse_status_line(status_line)?;
                 self.status_code = status_code;
                 self.reason_phrase = reason_phrase.to_string().into();
                 Ok((
                     ParseStatusInternal::CompletePart,
                     ResponseState::Headers,
-                    consumed
+                    consumed,
                 ))
             },
             None => Ok((
                 ParseStatusInternal::Incomplete,
                 ResponseState::StatusLine,
-                0
+                0,
             )),
         }
     }
@@ -522,22 +553,23 @@ mod tests {
         let mut response = Response::new();
         response.status_code = 200;
         response.reason_phrase = "OK".into();
-        response.headers.add_header(Header{
+        response.headers.add_header(Header {
             name: "Date".into(),
-            value: "Mon, 27 Jul 2009 12:28:53 GMT".into()
+            value: "Mon, 27 Jul 2009 12:28:53 GMT".into(),
         });
-        response.headers.add_header(Header{
+        response.headers.add_header(Header {
             name: "Accept-Ranges".into(),
-            value: "bytes".into()
+            value: "bytes".into(),
         });
-        response.headers.add_header(Header{
+        response.headers.add_header(Header {
             name: "Content-Type".into(),
-            value: "text/plain".into()
+            value: "text/plain".into(),
         });
-        response.body = "Hello World! My payload includes a trailing CRLF.\r\n".into();
-        response.headers.add_header(Header{
+        response.body =
+            "Hello World! My payload includes a trailing CRLF.\r\n".into();
+        response.headers.add_header(Header {
             name: "Content-Length".into(),
-            value: format!("{}", response.body.len())
+            value: format!("{}", response.body.len()),
         });
         assert!(matches!(
             response.generate(),
@@ -668,7 +700,9 @@ mod tests {
             "Hello World! My payload includes a trailing CRLF.\r\n".as_bytes(),
             response.body
         );
-        assert!(!response.headers.has_header_token("Transfer-Encoding", "chunked"));
+        assert!(!response
+            .headers
+            .has_header_token("Transfer-Encoding", "chunked"));
         assert!(!response.headers.has_header("Trailer"));
         assert!(!response.headers.has_header("Transfer-Encoding"));
         assert_eq!(
@@ -772,7 +806,7 @@ mod tests {
         let mut response = Response::new();
         assert!(matches!(
             response.parse(raw_response),
-            Ok(ParseResults{
+            Ok(ParseResults {
                 status: ParseStatus::Incomplete,
                 consumed: 0
             })
@@ -848,7 +882,8 @@ mod tests {
     }
 
     #[test]
-    fn response_with_no_content_length_or_chunked_transfer_encoding_has_no_body() {
+    fn response_with_no_content_length_or_chunked_transfer_encoding_has_no_body(
+    ) {
         let raw_response = concat!(
             "HTTP/1.1 200 OK\r\n",
             "Date: Mon, 27 Jul 2009 12:28:53 GMT\r\n",
@@ -890,14 +925,10 @@ mod tests {
                 consumed
             }) if consumed == raw_response.len()
         ));
-        assert_eq!(
-            "This is the body\r\n".as_bytes(),
-            response.body
-        );
+        assert_eq!("This is the body\r\n".as_bytes(), response.body);
         assert_eq!(
             "This is some extra trailer junk.".as_bytes(),
             response.trailer
         );
     }
-
 }
