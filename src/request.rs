@@ -277,40 +277,56 @@ impl Request {
     ///
     /// # Errors
     ///
-    /// * [`Error::RequestLineTooLong`](enum.Error.html#variant.
-    ///   RequestLineTooLong) &ndash; the request line in the request exceeds
-    ///   the maximum size constraint set in the
-    ///   [`request_line_limit`](#structfield.request_line_limit) field
-    /// * [`Error::RequestLineNotValidText`](enum.Error.html#variant.
-    ///   RequestLineNotValidText) &ndash; the request line contained bytes
-    ///   which could not be decoded as valid UTF-8 text
-    /// * [`Error::RequestLineNoMethodDelimiter`](enum.Error.html#variant.
-    ///   RequestLineNoMethodDelimiter) &ndash; the method part of the request
-    ///   line could not be parsed because no space character delimiting the
-    ///   method from the target URI could be found
-    /// * [`Error::RequestLineNoMethodOrExtraWhitespace`](enum.Error.html#
-    ///   variant.RequestLineNoMethodOrExtraWhitespace) &ndash; the method part
+    /// * [`Error::RequestLineTooLong`][RequestLineTooLong] &ndash; the request
+    ///   line in the request exceeds the maximum size constraint set in the
+    ///   [`request_line_limit`][request_line_limit] field
+    /// * [`Error::RequestLineNotValidText`][RequestLineNotValidText] &ndash;
+    ///   the request line contained bytes which could not be decoded as valid
+    ///   UTF-8 text
+    /// * [`Error::RequestLineNoMethodDelimiter`][RequestLineNoMethodDelimiter]
+    ///   &ndash; the method part of the request line could not be parsed
+    ///   because no space character delimiting the method from the target URI
+    ///   could be found
+    /// * [`Error::RequestLineNoMethodOrExtraWhitespace`][RequestLineNoMethodOrExtraWhitespace]
+    ///   &ndash; the method part
     ///   of the request line is either empty or there is extra whitespace
     ///   before it
-    /// * [`Error::RequestLineNoTargetDelimiter`](enum.Error.html#variant.
-    ///   RequestLineNoTargetDelimiter) &ndash; the target URI part of the
-    ///   request line could not be parsed because no space character delimiting
-    ///   the target URI from the protocol identifier could be found
-    /// * [`Error::RequestLineNoTargetOrExtraWhitespace`](enum.Error.html#
-    ///   variant.RequestLineNoTargetOrExtraWhitespace) &ndash; the target URI
-    ///   part of the request line is either empty or there is extra whitespace
-    ///   before it
-    /// * [`Error::RequestLineProtocol`](enum.Error.html#variant.
-    ///   RequestLineProtocol) &ndash; the protocol identifier part of the
-    ///   request line is either missing or does not match "HTTP/1.1"
-    /// * [`Error::Headers`](enum.Error.html#variant.Headers) &ndash; an error
-    ///   occurred parsing the request headers
-    /// * [`Error::MessageTooLong`](enum.Error.html#variant.MessageTooLong)
-    ///   &ndash; the request exceeds the maximum size constraint set in the
-    ///   [`max_message_size`](#structfield.max_message_size) field
-    /// * [`Error::InvalidContentLength`](enum.Error.html#variant.
-    ///   InvalidContentLength) &ndash; the value of the "Content-Length" header
-    ///   of the request could not be parsed
+    /// * [`Error::RequestLineNoTargetDelimiter`][RequestLineNoTargetDelimiter]
+    ///   &ndash; the target URI part of the request line could not be parsed
+    ///   because no space character delimiting the target URI from the protocol
+    ///   identifier could be found
+    /// * [`Error::RequestLineNoTargetOrExtraWhitespace`][RequestLineNoTargetOrExtraWhitespace]
+    ///   &ndash; the target URI part of the request line is either empty or
+    ///   there is extra whitespace before it
+    /// * [`Error::RequestLineProtocol`][RequestLineProtocol] &ndash; the
+    ///   protocol identifier part of the request line is either missing or does
+    ///   not match "HTTP/1.1"
+    /// * [`Error::Headers`][Headers] &ndash; an error occurred parsing the
+    ///   request headers
+    /// * [`Error::MessageTooLong`][MessageTooLong] &ndash; the request exceeds
+    ///   the maximum size constraint set in the
+    ///   [`max_message_size`][max_message_size] field
+    /// * [`Error::InvalidContentLength`][InvalidContentLength] &ndash; the
+    ///   value of the "Content-Length" header of the request could not be
+    ///   parsed
+    ///
+    /// [RequestLineTooLong]: enum.Error.html#variant.RequestLineTooLong
+    /// [request_line_limit]: #structfield.request_line_limit
+    /// [RequestLineNotValidText]:
+    /// enum.Error.html#variant.RequestLineNotValidText
+    /// [RequestLineNoMethodDelimiter]:
+    /// enum.Error.html#variant.RequestLineNoMethodDelimiter
+    /// [RequestLineNoMethodOrExtraWhitespace]:
+    /// enum.Error.html#variant.RequestLineNoMethodOrExtraWhitespace
+    /// [RequestLineNoTargetDelimiter]:
+    /// enum.Error.html#variant.RequestLineNoTargetDelimiter
+    /// [RequestLineNoTargetOrExtraWhitespace]:
+    /// enum.Error.html#variant.RequestLineNoTargetOrExtraWhitespace
+    /// [RequestLineProtocol]: enum.Error.html#variant.RequestLineProtocol
+    /// [Headers]: enum.Error.html#variant.Headers
+    /// [MessageTooLong]: enum.Error.html#variant.MessageTooLong
+    /// [max_message_size]: #structfield.max_message_size
+    /// [InvalidContentLength]: enum.Error.html#variant.InvalidContentLength
     pub fn parse<T>(
         &mut self,
         raw_message: T,
