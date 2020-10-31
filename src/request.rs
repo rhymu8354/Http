@@ -288,9 +288,8 @@ impl Request {
     ///   because no space character delimiting the method from the target URI
     ///   could be found
     /// * [`Error::RequestLineNoMethodOrExtraWhitespace`][RequestLineNoMethodOrExtraWhitespace]
-    ///   &ndash; the method part
-    ///   of the request line is either empty or there is extra whitespace
-    ///   before it
+    ///   &ndash; the method part of the request line is either empty or there
+    ///   is extra whitespace before it
     /// * [`Error::RequestLineNoTargetDelimiter`][RequestLineNoTargetDelimiter]
     ///   &ndash; the target URI part of the request line could not be parsed
     ///   because no space character delimiting the target URI from the protocol

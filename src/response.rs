@@ -300,44 +300,56 @@ impl Response {
     ///
     /// # Errors
     ///
-    /// * [`Error::StatusLineNotValidText`](enum.Error.html#variant.
-    ///   StatusLineNotValidText) &ndash; the status line contained bytes which
-    ///   could not be decoded as valid UTF-8 text
-    /// * [`Error::StatusLineNoProtocolDelimiter`](enum.Error.html#variant.
-    ///   StatusLineNoProtocolDelimiter) &ndash; the protocol identifier part of
-    ///   the status line could not be parsed because no space character
-    ///   delimiting the protocol identifier from the numeric status code could
-    ///   be found
-    /// * [`Error::StatusLineProtocol`](enum.Error.html#variant.
-    ///   StatusLineProtocol) &ndash; the protocol identifier part of the status
-    ///   line is either missing or does not match "HTTP/1.1"
-    /// * [`Error::StatusLineNoStatusCodeDelimiter`](enum.Error.html#variant.
-    ///   StatusLineNoStatusCodeDelimiter) &ndash; the numeric status code part
-    ///   of the status line could not be parsed because no space character
-    ///   delimiting the numeric status code from the reason phrase could be
-    ///   found
-    /// * [`Error::InvalidStatusCode`](enum.Error.html#variant.
-    ///   InvalidStatusCode) &ndash; the value of the numeric status code in the
-    ///   status line could not be parsed
-    /// * [`Error::StatusCodeOutOfRange`](enum.Error.html#variant.
-    ///   StatusCodeOutOfRange) &ndash; the value of the numeric status code in
-    ///   the status line is greater than 999, the maximum permitted value
-    /// * [`Error::Headers`](enum.Error.html#variant.Headers) &ndash; an error
-    ///   occurred parsing the response headers
-    /// * [`Error::InvalidContentLength`](enum.Error.html#variant.
-    ///   InvalidContentLength) &ndash; the value of the "Content-Length" header
-    ///   of the response could not be parsed
-    /// * [`Error::ChunkSizeLineNotValidText`](enum.Error.html#variant.
-    ///   ChunkSizeLineNotValidText) &ndash; a chunk size line contained bytes
-    ///   which could not be decoded as valid UTF-8 text
-    /// * [`Error::InvalidChunkSize`](enum.Error.html#variant.InvalidChunkSize)
-    ///   &ndash; the value of a chunk size could not be parsed
-    /// * [`Error::InvalidChunkTerminator`](enum.Error.html#variant.
-    ///   InvalidChunkTerminator) &ndash; extra junk was found at the end of a
-    ///   chunk rather than carriage-return and line-feed, which are required
-    /// * [`Error::Trailer`](enum.Error.html#variant.Trailer) &ndash; an error
-    ///   occurred parsing the headers contained in the trailer for the
-    ///   chunked-encoded body
+    /// * [`Error::StatusLineNotValidText`][StatusLineNotValidText] &ndash; the
+    ///   status line contained bytes which could not be decoded as valid UTF-8
+    ///   text
+    /// * [`Error::StatusLineNoProtocolDelimiter`][StatusLineNoProtocolDelimiter]
+    ///   &ndash; the protocol identifier part of the status line could not be
+    ///   parsed because no space character delimiting the protocol identifier
+    ///   from the numeric status code could be found
+    /// * [`Error::StatusLineProtocol`][StatusLineProtocol] &ndash; the protocol
+    ///   identifier part of the status line is either missing or does not match
+    ///   "HTTP/1.1"
+    /// * [`Error::StatusLineNoStatusCodeDelimiter`][StatusLineNoStatusCodeDelimiter]
+    ///   &ndash; the numeric status code part of the status line could not be
+    ///   parsed because no space character delimiting the numeric status code
+    ///   from the reason phrase could be found
+    /// * [`Error::InvalidStatusCode`][InvalidStatusCode] &ndash; the value of
+    ///   the numeric status code in the status line could not be parsed
+    /// * [`Error::StatusCodeOutOfRange`][StatusCodeOutOfRange] &ndash; the
+    ///   value of the numeric status code in the status line is greater than
+    ///   999, the maximum permitted value
+    /// * [`Error::Headers`][Headers] &ndash; an error occurred parsing the
+    ///   response headers
+    /// * [`Error::InvalidContentLength`][InvalidContentLength] &ndash; the
+    ///   value of the "Content-Length" header of the response could not be
+    ///   parsed
+    /// * [`Error::ChunkSizeLineNotValidText`][ChunkSizeLineNotValidText]
+    ///   &ndash; a chunk size line contained bytes which could not be decoded
+    ///   as valid UTF-8 text
+    /// * [`Error::InvalidChunkSize`][InvalidChunkSize] &ndash; the value of a
+    ///   chunk size could not be parsed
+    /// * [`Error::InvalidChunkTerminator`][InvalidChunkTerminator] &ndash;
+    ///   extra junk was found at the end of a chunk rather than carriage-return
+    ///   and line-feed, which are required
+    /// * [`Error::Trailer`][Trailer] &ndash; an error occurred parsing the
+    ///   headers contained in the trailer for the chunked-encoded body
+    ///
+    /// [StatusLineNotValidText]: enum.Error.html#variant.StatusLineNotValidText
+    /// [StatusLineNoProtocolDelimiter]:
+    /// enum.Error.html#variant.StatusLineNoProtocolDelimiter
+    /// [StatusLineProtocol]: enum.Error.html#variant.StatusLineProtocol
+    /// [StatusLineNoStatusCodeDelimiter]:
+    /// enum.Error.html#variant.StatusLineNoStatusCodeDelimiter
+    /// [InvalidStatusCode]: enum.Error.html#variant.InvalidStatusCode
+    /// [StatusCodeOutOfRange]: enum.Error.html#variant.StatusCodeOutOfRange
+    /// [Headers]: enum.Error.html#variant.Headers
+    /// [InvalidContentLength]: enum.Error.html#variant.InvalidContentLength
+    /// [ChunkSizeLineNotValidText]:
+    /// enum.Error.html#variant.ChunkSizeLineNotValidText
+    /// [InvalidChunkSize]: enum.Error.html#variant.InvalidChunkSize
+    /// [InvalidChunkTerminator]: enum.Error.html#variant.InvalidChunkTerminator
+    /// [Trailer]: enum.Error.html#variant.Trailer
     pub fn parse<T>(
         &mut self,
         raw_message: T,
