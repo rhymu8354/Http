@@ -81,6 +81,7 @@ enum ParseStatusInternal {
     Incomplete,
 }
 
+#[derive(Debug)]
 /// This type is used to parse and generate HTTP 1.1 requests.
 pub struct Request {
     /// This holds the bytes which compose the body of the request.

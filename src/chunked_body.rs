@@ -33,6 +33,7 @@ enum ChunkedBodyState {
     Trailer,
 }
 
+#[derive(Debug)]
 pub struct ChunkedBody {
     pub buffer: Vec<u8>,
     chunk_bytes_needed: usize,

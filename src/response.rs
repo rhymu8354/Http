@@ -43,6 +43,7 @@ fn parse_status_line(status_line: &str) -> Result<(usize, &str), Error> {
     Ok((status_code, reason_phrase))
 }
 
+#[derive(Debug)]
 enum ResponseState {
     ChunkedBody(ChunkedBody),
     FixedBody(usize),
@@ -88,6 +89,7 @@ enum ParseStatusInternal {
     Incomplete,
 }
 
+#[derive(Debug)]
 /// This type is used to parse and generate HTTP 1.1 responses.
 pub struct Response {
     /// This holds the bytes which compose the body of the response.
