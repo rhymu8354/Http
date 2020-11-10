@@ -1,6 +1,6 @@
 # Http (rhymuweb)
 
-This is a library which implements [RFC
+This is a library which implements common types for the [RFC
 7230](https://tools.ietf.org/html/rfc7230), "Hypertext Transfer Protocol
 (HTTP/1.1): Message Syntax and Routing".
 

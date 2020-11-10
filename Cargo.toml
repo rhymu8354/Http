@@ -1,13 +1,13 @@
 [package]
 name = "rhymuweb"
 version = "1.0.0"
-description = "Implementation of Hypertext Transfer Protocol (HTTP)"
+description = "Common types for the Hypertext Transfer Protocol (HTTP)"
 authors = ["Richard Walters <rwalters@digitalstirling.com>"]
 edition = "2018"
 license = "MIT"
 readme = "README.md"
 categories = ["parser-implementations", "web-programming"]
-keywords = ["http", "parser", "client", "server"]
+keywords = ["http", "parser"]
 repository = "https://github.com/rhymu8354/Http.git"
 exclude = [
     "*.hpp",
