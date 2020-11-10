@@ -24,9 +24,10 @@ for the following programming languages:
 
 ## Building the C++ Implementation
 
-A portable library is builtwhich depends only on the C++11 compiler and
-standard library, so it should be supported on almost any platform.  The
-following are recommended toolchains for popular platforms.
+A portable library is built which depends on the C++11 compiler, the C++
+standard library, and non-standard dependencies listed below.  It should be
+supported on almost any platform.  The following are recommended toolchains for
+popular platforms.
 
 * Windows -- [Visual Studio](https://www.visualstudio.com/) (Microsoft Visual
   C++)
@@ -49,8 +50,19 @@ There are two distinct steps in the build process:
 * [CMake](https://cmake.org/) version 3.8 or newer
 * C++11 toolchain compatible with CMake for your development platform (e.g.
   [Visual Studio](https://www.visualstudio.com/) on Windows)
+* [MessageHeaders](https://github.com/rhymu8354/MessageHeaders.git) - a library
+  which can parse and generate e-mail or web message headers
+* [StringExtensions](https://github.com/rhymu8354/StringExtensions.git) - a
+  library containing C++ string-oriented libraries, many of which ought to be
+  in the standard library, but aren't.
+* [SystemAbstractions](https://github.com/rhymu8354/SystemAbstractions.git) - a
+  cross-platform adapter library for system services whose APIs vary from one
+  operating system to another
 * [Timekeeping](https://github.com/rhymu8354/Timekeeping.git) - a library
   of classes and interfaces dealing with tracking time and scheduling work
+* [Uri](https://github.com/rhymu8354/Uri.git) - a library that can parse and
+  generate Uniform Resource Identifiers (URIs)
+* [zlib](https://github.com/madler/zlib.git) - Foundational compression library
 
 ### Build system generation
 
