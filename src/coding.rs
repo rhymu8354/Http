@@ -26,7 +26,7 @@ use std::io::Read as _;
 ///
 /// # Errors
 ///
-/// [`Error::BadContentEncoding`](enum.Error.html#variant.BadContentEncoding)
+/// [`Error::BadContentEncoding`](../enum.Error.html#variant.BadContentEncoding)
 /// is returned if an error occurs during the decoding process.
 pub fn decode_body<B>(
     headers: &mut MessageHeaders,
