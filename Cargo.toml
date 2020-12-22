@@ -1,6 +1,6 @@
 [package]
 name = "rhymuweb"
-version = "1.0.0"
+version = "1.1.0"
 description = "Common types for the Hypertext Transfer Protocol (HTTP)"
 authors = ["Richard Walters <rwalters@digitalstirling.com>"]
 edition = "2018"
