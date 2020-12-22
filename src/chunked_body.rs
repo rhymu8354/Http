@@ -108,10 +108,9 @@ impl ChunkedBody {
             Some(chunk_size_line_end) => {
                 let chunk_size_line = &raw_message[0..chunk_size_line_end];
                 let chunk_size_line = std::str::from_utf8(chunk_size_line)
-                    .map_err(|_| {
-                        Error::ChunkSizeLineNotValidText(
-                            chunk_size_line.to_vec(),
-                        )
+                    .map_err(|source| Error::ChunkSizeLineNotValidText {
+                        chunk_size_line: chunk_size_line.to_vec(),
+                        source,
                     })?;
                 let consumed = chunk_size_line_end + CRLF.len();
                 self.chunk_bytes_needed = parse_chunk_size(chunk_size_line)?;

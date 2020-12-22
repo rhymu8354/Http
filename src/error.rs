@@ -1,3 +1,5 @@
+use std::str::Utf8Error;
+
 /// This is the enumeration of all the different kinds of errors which this
 /// crate generates.
 #[derive(Debug, thiserror::Error)]
@@ -8,7 +10,14 @@ pub enum Error {
 
     /// The attached bytes did not parse as valid chunk size text.
     #[error("chunk size line is not valid text")]
-    ChunkSizeLineNotValidText(Vec<u8>),
+    ChunkSizeLineNotValidText {
+        /// These are the bytes that did not parse as valid chunk size text.
+        chunk_size_line: Vec<u8>,
+
+        /// This is the source of the parsing error.
+        #[source]
+        source: Utf8Error,
+    },
 
     /// An error occurred with the message headers.
     #[error("Error in headers")]
@@ -58,7 +67,14 @@ pub enum Error {
     /// The attached bytes did not parse as valid text for the HTTP request
     /// line.
     #[error("request line is not valid text")]
-    RequestLineNotValidText(Vec<u8>),
+    RequestLineNotValidText {
+        /// These are the bytes that did not parse as valid request line text.
+        request_line: Vec<u8>,
+
+        /// This is the source of the parsing error.
+        #[source]
+        source: Utf8Error,
+    },
 
     /// The protocol is unrecognized or could not be parsed from the HTTP
     /// request line attached.
@@ -91,7 +107,14 @@ pub enum Error {
     /// The attached bytes did not parse as valid text for the HTTP status
     /// line.
     #[error("status line is not valid text")]
-    StatusLineNotValidText(Vec<u8>),
+    StatusLineNotValidText {
+        /// These are the bytes that did not parse as valid status line text.
+        status_line: Vec<u8>,
+
+        /// This is the source of the parsing error.
+        #[source]
+        source: Utf8Error,
+    },
 
     /// The protocol is unrecognized or could not be parsed from the HTTP
     /// status line attached.
@@ -100,7 +123,7 @@ pub enum Error {
 
     /// An error occurred during string formatting.
     #[error("error during string format")]
-    StringFormat,
+    StringFormat(#[from] std::io::Error),
 
     /// An error occurred with the message trailer.
     #[error("Error in trailer")]

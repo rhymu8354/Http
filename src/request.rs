@@ -188,7 +188,7 @@ impl Request {
     pub fn generate(&self) -> Result<Vec<u8>, Error> {
         let mut output = Vec::new();
         write!(&mut output, "{} {} HTTP/1.1\r\n", self.method, self.target)
-            .map_err(|_| Error::StringFormat)?;
+            .map_err(Error::StringFormat)?;
         output.append(&mut self.headers.generate().map_err(Error::Headers)?);
         output.extend(&self.body);
         Ok(output)
@@ -433,8 +433,11 @@ impl Request {
             (Some(request_line_end), _) => {
                 let request_line = &raw_message[0..request_line_end];
                 let request_line =
-                    std::str::from_utf8(request_line).map_err(|_| {
-                        Error::RequestLineNotValidText(request_line.to_vec())
+                    std::str::from_utf8(request_line).map_err(|source| {
+                        Error::RequestLineNotValidText {
+                            request_line: request_line.to_vec(),
+                            source,
+                        }
                     })?;
                 let consumed = request_line_end + CRLF.len();
                 self.count_bytes(consumed)?;
@@ -824,7 +827,7 @@ mod tests {
         let mut request = Request::new();
         assert!(matches!(
             request.parse(raw_request),
-            Err(Error::InvalidContentLength(std::num::ParseIntError{..}))
+            Err(Error::InvalidContentLength(std::num::ParseIntError { .. }))
         ));
     }
 

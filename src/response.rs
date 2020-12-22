@@ -195,7 +195,7 @@ impl Response {
             "HTTP/1.1 {} {}\r\n",
             self.status_code, self.reason_phrase
         )
-        .map_err(|_| Error::StringFormat)?;
+        .map_err(Error::StringFormat)?;
         output.append(&mut self.headers.generate().map_err(Error::Headers)?);
         output.extend(&self.body);
         Ok(output)
@@ -526,8 +526,11 @@ impl Response {
             Some(status_line_end) => {
                 let status_line = &raw_message[0..status_line_end];
                 let status_line =
-                    std::str::from_utf8(status_line).map_err(|_| {
-                        Error::StatusLineNotValidText(status_line.to_vec())
+                    std::str::from_utf8(status_line).map_err(|source| {
+                        Error::StatusLineNotValidText {
+                            status_line: status_line.to_vec(),
+                            source,
+                        }
                     })?;
                 let consumed = status_line_end + CRLF.len();
                 let (status_code, reason_phrase) =
