@@ -28,7 +28,7 @@
 //! [`Request`].  To change or remove the overall message length constraint,
 //! set the [`max_message_size`] field of [`Request`].
 //!
-//! [`headers`]: struct.Request.html#method.generate#structfield.headers
+//! [`headers`]: struct.Request.html#structfield.headers
 //! [`max_message_size`]: struct.Request.html#structfield.max_message_size
 //! [`MessageHeaders::set_line_limit`]: https://docs.rs/rhymessage/1.3.1/rhymessage/struct.MessageHeaders.html#method.set_line_limit
 //! [`Response`]: struct.Response.html
