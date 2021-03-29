@@ -37,8 +37,7 @@ where
 {
     let mut codings = headers.header_tokens("Content-Encoding");
     let mut body = body.as_ref().to_vec();
-    while !codings.is_empty() {
-        let coding = codings.pop().unwrap();
+    while let Some(coding) = codings.pop() {
         match coding.as_ref() {
             "gzip" => body = gzip_decode(body)?,
             "deflate" => body = deflate_decode(body)?,

@@ -375,7 +375,7 @@ impl Response {
                         .parse_message_for_fixed_body(
                             raw_message_remainder,
                             content_length,
-                        )?;
+                        );
                     (
                         parse_status,
                         ResponseState::FixedBody(content_length),
@@ -458,9 +458,9 @@ impl Response {
         &mut self,
         raw_message: &[u8],
         content_length: usize,
-    ) -> Result<(ParseStatusInternal, usize), Error> {
+    ) -> (ParseStatusInternal, usize) {
         let needed = content_length - self.body.len();
-        Ok((
+        (
             if raw_message.len() >= needed {
                 self.body.extend(&raw_message[..needed]);
                 self.trailer.extend(&raw_message[needed..]);
@@ -470,7 +470,7 @@ impl Response {
                 ParseStatusInternal::Incomplete
             },
             raw_message.len(),
-        ))
+        )
     }
 
     fn parse_message_for_headers(
